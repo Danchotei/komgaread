@@ -59,7 +59,7 @@ onMounted(load)
 
 <template>
   <main class="detail-page">
-    <header class="detail-header"><button class="text-button" @click="$emit('back')">返回</button><span>系列详情</span></header>
+    <button class="text-button detail-back" @click="$emit('back')">← 返回</button>
     <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" @click="series ? loadBooks() : load()">重试</button></p>
     <p v-if="!series && !error" role="status">正在加载…</p>
     <template v-if="series">

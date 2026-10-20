@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { searchState, type SearchSeries } from '../searchState'
-import AppHeader from './AppHeader.vue'
 const order = ref<'asc' | 'desc'>('desc')
 const keyword = ref('')
 defineProps<{ canBack?: boolean }>()
@@ -118,7 +117,6 @@ async function toggleOrder() {
 
 <template>
   <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="handleScroll">
-    <AppHeader title="搜索" />
     <button v-if="canBack" class="text-button return-series" @click="$emit('back')">← 返回</button>
     <form class="search-form" @submit.prevent="search(false, false, true)">
       <div class="search-input-row"><input v-model="keyword" aria-label="搜索关键词" placeholder="搜索标题、作者、分类或标签" maxlength="200" required /><button class="text-button" type="submit">搜索</button></div>

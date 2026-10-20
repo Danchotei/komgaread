@@ -4,6 +4,7 @@ import LoginView from './components/LoginView.vue'
 import BottomNav from './components/BottomNav.vue'
 import PageView from './components/PageView.vue'
 import SetupView from './components/SetupView.vue'
+import AppHeader from './components/AppHeader.vue'
 import { authRequest, type User } from './api/auth'
 import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
@@ -178,6 +179,7 @@ const setupStatus = ref<SetupStatus | null>(null)
 const startupError = ref('')
 const loggingOut = ref(false)
 const message = ref('')
+const showAppHeader = computed(() => !!user.value && !checking.value && !startupError.value && route.value?.type !== 'books')
 
 function handleLogin(authenticatedUser: User) {
   resetSearchState()
@@ -226,7 +228,9 @@ async function logout() {
 </script>
 
 <template>
-  <div ref="pageStage" class="page-stage" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }" @click="handlePageLink">
+  <!-- 公共抬头位于过渡和页面缓存外，除阅读页外保持同一个实例。 -->
+  <div v-if="showAppHeader" class="app-header-shell" @click="handlePageLink"><AppHeader /></div>
+  <div ref="pageStage" class="page-stage" :class="{ 'has-app-header': showAppHeader }" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }" @click="handlePageLink">
     <main v-if="checking" class="login-page" role="status">正在检查服务状态…</main>
     <main v-else-if="startupError" class="login-page"><div class="login-container"><p class="form-message" role="alert">{{ startupError }}</p><button class="submit-button" @click="checkStartup">重试连接</button></div></main>
     <SetupView v-else-if="setupStatus && !setupStatus.configured" @configured="checkStartup" />

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import AppHeader from './AppHeader.vue'
 
 
 interface Series {
@@ -88,7 +87,6 @@ onMounted(loadRecent)
 
 <template>
   <div class="home-page">
-    <AppHeader title="主页" />
     <main>
       <section aria-labelledby="recent-title" :aria-busy="recentLoading">
         <div class="section-heading">
