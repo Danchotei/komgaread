@@ -46,7 +46,17 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .account-email { overflow-wrap: anywhere; }
 
 /* 两组单行书架，根据屏幕高度缩放封面；窄屏左右滑动。 */
-.home-page { max-width: 1040px; margin: 0 auto; padding: 0 20px 12px; }
+.home-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.home-page > main { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.home-page > main > section { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
 .home-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid #dce4dc; }
 .home-header .brand { margin: 0; font-size: 18px; }
 .home-header .brand-icon { width: 28px; height: 32px; font-size: 19px; }
@@ -56,17 +66,24 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 48px; margin: 4px 0; }
 .section-heading h2 { margin: 0; font-size: 18px; }
 .series-grid, .recent-series-row {
-  display: grid;
-  grid-auto-flow: column;
-  /* 预留页头、分区标题、卡片文字和间距，剩余高度平分给两排封面。 */
-  grid-auto-columns: min(calc((100% - 36px) / 4), max(68px, calc((100svh - 300px) / 3)), 180px);
+  flex: 1;
+  min-height: 0;
+  /* 子卡片通过 cqh 读取此容器实际分到的高度。 */
+  container-type: size;
+  display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding: 0 0 6px;
+  padding: 0 0 12px;
   scroll-snap-type: x proximity;
+  align-items: start;
 }
-.series-card { min-width: 0; scroll-snap-align: start; }
-.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #e2e8df; display: grid; place-items: center; }
+.series-card {
+  flex: 0 0 min(calc((100% - 36px) / 4), 180px);
+  /* 给标题、篇数和滚动条预留空间，其余高度按 2:3 换算封面宽度。 */
+  flex-basis: min(calc((100% - 36px) / 4), calc((100cqh - 4rem) * 2 / 3), 180px);
+  min-width: 72px;
+  scroll-snap-align: start;
+}.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #e2e8df; display: grid; place-items: center; }
 .series-cover img { width: 100%; height: 100%; object-fit: cover; }
 .cover-fallback { color: #64736a; font-size: 12px; }
 .series-card h3 { margin: 6px 0 2px; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; line-height: 1.5; }
@@ -74,8 +91,13 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .empty-state { margin: 8px 0; padding: 16px; background: #fff; border: 1px solid #dce4dc; border-radius: 10px; text-align: center; color: #64736a; }
 .series-grid:focus-visible, .recent-series-row:focus-visible { outline: 3px solid #7bad91; outline-offset: 2px; }
 @media (max-width: 640px) {
-  .home-page { padding-inline: 16px; }
-  .series-grid, .recent-series-row {
-    grid-auto-columns: min(36%, max(68px, calc((100svh - 300px) / 3)), 160px);
+  .series-card {
+    flex-basis: min(36%, 160px);
+    flex-basis: min(36%, calc((100cqh - 4rem) * 2 / 3), 160px);
   }
+}
+/* 横屏和较矮窗口恢复自然滚动，保证封面和文字可读。 */
+@media (max-height: 600px) {
+  .home-page { height: auto; min-height: 100vh; min-height: 100dvh; }
+  .home-page > main > section { flex: none; height: 280px; }
 }
