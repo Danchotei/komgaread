@@ -9,6 +9,17 @@ import { resetSearchState } from './searchState'
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
 const mainTabs = ['#/', '#/categories', '#/me']
+const pageStage = ref<HTMLElement | null>(null)
+const stageHeight = ref<number | null>(null)
+
+// 动画期间固定布局高度，避免旧页面脱离文档流或内容加载导致容器塌缩。
+function lockStageHeight() {
+  stageHeight.value = Math.max(pageStage.value?.scrollHeight || 0, window.innerHeight)
+}
+function finishTransition() {
+  stageHeight.value = null
+  void nextTick(restoreScroll)
+}
 
 // 层级只选择动画方向；返回目标由下面的站内页面栈决定。
 function pageLevel(value: string) {
@@ -50,8 +61,10 @@ function tabIndex(value: string) {
   return mainTabs.indexOf(value || '#/')
 }
 function updateRoute() {
+  lockStageHeight()
   transitioning = true
   const target = window.location.hash || '#/'
+  const returning = backRequested
   if (rootRequested) {
     generation.value++
     pages.value = [{ key: nextKey++, hash: target, scrollY: 0 }]
@@ -72,8 +85,11 @@ function updateRoute() {
     : 'page-static'
   if (fromLevel > toLevel) tabTransition.value = 'series-back'
   else if (fromLevel < toLevel) tabTransition.value = 'series-slide'
-  if (target === '#/search' && fromLevel === 0) tabTransition.value = 'search-down'
-  if (hash.value === '#/search' && toLevel === 0) tabTransition.value = 'search-up'
+  // 点击系列封面弹出详情，返回时收起详情；搜索入口沿用同一套效果。
+  if (target.startsWith('#/series/') && !returning) tabTransition.value = 'card-open'
+  if (target === '#/search') tabTransition.value = 'card-open'
+  if (hash.value.startsWith('#/series/') && returning) tabTransition.value = 'card-close'
+  if (hash.value === '#/search' && (toLevel === 0 || returning)) tabTransition.value = 'card-close'
 
   hash.value = target
   void nextTick(restoreScroll)
@@ -94,12 +110,6 @@ const user = ref<User | null>(null)
 const checking = ref(true)
 const loggingOut = ref(false)
 const message = ref('')
-const transitionName = computed(() => {
-  if (!user.value || checking.value) return 'page-static'
-  if (tabTransition.value === 'series-back') return 'series-back'
-  if (route.value?.type === 'series') return 'series-slide'
-  return tabTransition.value
-})
 
 function handleLogin(authenticatedUser: User) {
   resetSearchState()
@@ -141,9 +151,9 @@ async function logout() {
 </script>
 
 <template>
-  <div class="page-stage">
+  <div ref="pageStage" class="page-stage" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }">
     <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
-    <Transition v-else-if="user" :name="transitionName" @after-enter="restoreScroll">
+    <Transition v-else-if="user" :name="tabTransition" @after-enter="finishTransition" @enter-cancelled="finishTransition">
       <KeepAlive :key="generation">
         <PageView :key="currentPage.key" :page-hash="currentPage.hash" :user="user" :logging-out="loggingOut" :message="message" :can-back="pages.length > 1" @back="goBack" @logout="logout" />
       </KeepAlive>

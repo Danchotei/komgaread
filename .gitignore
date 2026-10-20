@@ -10,7 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+*.tsbuildinfo
 *.local
+# 本地及部署环境配置不提交；示例配置保留供安装使用。
 .env
 .env.*
 !.env.example
@@ -30,6 +32,12 @@ dist-ssr
 .venv/
 __pycache__/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
 *.pyc
 
+# 每日推荐数据库及其 SQLite 临时文件。
 backend/data/

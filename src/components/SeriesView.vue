@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
 import { getJson } from '../api/library'
-import { searchMetadata, searchState } from '../searchState'
-import { seriesState, type SeriesInfo, type ChapterInfo } from '../seriesState'
+import { searchMetadata } from '../searchState'
+import type { SeriesInfo, ChapterInfo } from '../seriesState'
 const props = defineProps<{ seriesId: string }>()
 defineEmits<{ back: [] }>()
 const series = ref<SeriesInfo | null>(null)
@@ -33,11 +33,7 @@ async function changeOrder() {
 const failed = ref(new Set<string>())
 function openMetadata(keyword: string, type: 'author' | 'genre' | 'tag') {
   if (!series.value || loading.value) return
-  seriesState.snapshot = {
-    id: props.seriesId, series: { ...series.value }, books: [...books.value],
-    order: order.value, page: page.value, last: last.value, failed: [...failed.value],
-  }
-  searchMetadata(keyword, type, props.seriesId)
+  searchMetadata(keyword, type)
 }
 async function loadBooks() {
   if (loading.value) return
@@ -54,27 +50,8 @@ async function loadBooks() {
 async function load() {
   error.value = ''
   try {
-    const saved = seriesState.snapshot
-    const position = searchState.returnPosition
-    if (position?.id === props.seriesId && saved?.id === props.seriesId) {
-      series.value = { ...saved.series }
-      books.value = [...saved.books]
-      order.value = saved.order
-      page.value = saved.page
-      last.value = saved.last
-      failed.value = new Set(saved.failed)
-      searchState.returnPosition = null
-      await nextTick()
-      requestAnimationFrame(() => window.scrollTo({ top: position.scrollY, behavior: 'instant' }))
-      return
-    }
     series.value = await getJson<SeriesInfo>(`/api/series/${encodeURIComponent(props.seriesId)}`)
     await loadBooks()
-    if (position?.id === props.seriesId) {
-      searchState.returnPosition = null
-      await nextTick()
-      requestAnimationFrame(() => window.scrollTo({ top: position.scrollY, behavior: 'instant' }))
-    }
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '系列加载失败' }
 }
 onMounted(load)
