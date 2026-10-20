@@ -3,7 +3,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import LoginView from './components/LoginView.vue'
 import BottomNav from './components/BottomNav.vue'
 import PageView from './components/PageView.vue'
+import SetupView from './components/SetupView.vue'
 import { authRequest, type User } from './api/auth'
+import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
 
 const hash = ref(window.location.hash)
@@ -108,6 +110,8 @@ const route = computed(() => {
 const activeTab = computed(() => hash.value === '#/categories' ? 'categories' : hash.value === '#/me' ? 'me' : 'home')
 const user = ref<User | null>(null)
 const checking = ref(true)
+const setupStatus = ref<SetupStatus | null>(null)
+const startupError = ref('')
 const loggingOut = ref(false)
 const message = ref('')
 
@@ -123,17 +127,22 @@ function handleLogin(authenticatedUser: User) {
   user.value = authenticatedUser
 }
 
-onMounted(async () => {
+async function checkStartup() {
+  checking.value = true
+  startupError.value = ''
   try {
-    user.value = await authRequest<User>('me')
-  } catch {
-    // 没有有效会话时显示登录表单，提交时再显示具体连接错误。
-    user.value = null
-    resetSearchState()
+    setupStatus.value = await setupRequest<SetupStatus>()
+    if (setupStatus.value.configured) {
+      try { user.value = await authRequest<User>('me') }
+      catch { user.value = null; resetSearchState() }
+    }
+  } catch (cause) {
+    startupError.value = cause instanceof Error ? cause.message : '启动检查失败'
   } finally {
     checking.value = false
   }
-})
+}
+onMounted(checkStartup)
 
 async function logout() {
   loggingOut.value = true
@@ -152,7 +161,9 @@ async function logout() {
 
 <template>
   <div ref="pageStage" class="page-stage" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }">
-    <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
+    <main v-if="checking" class="login-page" role="status">正在检查服务状态…</main>
+    <main v-else-if="startupError" class="login-page"><div class="login-container"><p class="form-message" role="alert">{{ startupError }}</p><button class="submit-button" @click="checkStartup">重试连接</button></div></main>
+    <SetupView v-else-if="setupStatus && !setupStatus.configured" @configured="checkStartup" />
     <Transition v-else-if="user" :name="tabTransition" @after-enter="finishTransition" @enter-cancelled="finishTransition">
       <KeepAlive :key="generation">
         <PageView :key="currentPage.key" :page-hash="currentPage.hash" :user="user" :logging-out="loggingOut" :message="message" :can-back="pages.length > 1" @back="goBack" @logout="logout" />
@@ -160,5 +171,5 @@ async function logout() {
     </Transition>
     <LoginView v-else @authenticated="handleLogin" />
   </div>
-  <BottomNav v-if="user && !checking && !route" :active="hash === '#/search' ? undefined : activeTab" @navigate="navigateRoot" />
+  <BottomNav v-if="user && !checking && !startupError && !route" :active="hash === '#/search' ? undefined : activeTab" @navigate="navigateRoot" />
 </template>

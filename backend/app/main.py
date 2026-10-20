@@ -3,6 +3,7 @@ from time import time
 from secrets import token_urlsafe
 import os
 from urllib.parse import urlsplit
+from contextlib import asynccontextmanager
 
 import httpx
 from dotenv import load_dotenv
@@ -16,7 +17,14 @@ ALLOWED_ORIGINS = {value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http
 COOKIE_NAME = "komgaread_session"
 SESSION_SECONDS = 8 * 60 * 60
 
-app = FastAPI(title="KomgaRead API")
+@asynccontextmanager
+async def lifespan(app):
+    from .setup import prepare_setup
+    prepare_setup(komga_url)
+    yield
+
+
+app = FastAPI(title="KomgaRead API", lifespan=lifespan)
 # 学习阶段用内存保存会话。重启会退出登录；只运行一个 worker。
 sessions: dict[str, tuple[str, float]] = {}
 
@@ -64,13 +72,18 @@ async def protect_requests(request: Request, call_next):
     return response
 
 
+def komga_url():
+    from .setup import configured_url
+    return configured_url(KOMGA_URL)
+
+
 async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
-    if not KOMGA_URL:
-        raise HTTPException(503, "请先在后端配置 KOMGA_URL")
+    url = komga_url()
+    if not url:
+        raise HTTPException(503, "请先在启动页面配置 Komga 地址")
     try:
-        # 每次独立客户端，避免不同用户之间共享 Komga Cookie。
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
-            response = await client.request(method, f"{KOMGA_URL}{path}", **kwargs)
+            response = await client.request(method, f"{url}{path}", **kwargs)
     except httpx.RequestError:
         raise HTTPException(502, "无法连接 Komga，请检查地址或网络") from None
     if response.status_code == 401:
@@ -308,11 +321,12 @@ async def book_image(book_id: str, request: Request, suffix: str, params=None):
     from fastapi.responses import StreamingResponse
     from starlette.background import BackgroundTask
     token = current_token(request)
-    if not KOMGA_URL:
+    url = komga_url()
+    if not url:
         raise HTTPException(503, "请先配置 Komga")
     client = httpx.AsyncClient(timeout=30, follow_redirects=False)
     try:
-        upstream = await client.send(client.build_request("GET", f"{KOMGA_URL}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
+        upstream = await client.send(client.build_request("GET", f"{url}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
     except httpx.RequestError:
         await client.aclose()
         raise HTTPException(502, "漫画图片连接失败") from None
@@ -367,3 +381,7 @@ app.include_router(create_search_router(
     current_token,
     read_json,
 ))
+
+from .setup import create_setup_router
+
+app.include_router(create_setup_router(komga_url))

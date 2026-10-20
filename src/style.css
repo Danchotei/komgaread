@@ -109,6 +109,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 }
 
 .submit-button:disabled { opacity: .65; cursor: wait; }
+.setup-hint { font-size: 12px; color: #64736a; }
+.setup-actions { display: flex; gap: 12px; align-items: stretch; }
+.setup-actions .submit-button { flex: 1; width: auto; margin: 0; }
+.setup-actions .text-button { white-space: nowrap; }
+.setup-checks { padding-left: 20px; font-size: 13px; overflow-wrap: anywhere; }
 .account-email { overflow-wrap: anywhere; }
 
 /* 两组单行书架，根据屏幕高度缩放封面；窄屏左右滑动。 */
