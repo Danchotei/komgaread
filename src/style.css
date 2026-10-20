@@ -217,3 +217,29 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
   .home-page { height: auto; min-height: calc(100dvh - 64px); padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
   .home-page > main > section { flex: none; height: 250px; }
 }
+
+/* Webtoon：图片自然高度、无缝纵向拼接；未加载页预留空间避免全部挤在顶部。 */
+.webtoon-reader .reader-header { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-top: max(12px, env(safe-area-inset-top, 0px)); background: #19201cf5; }
+.reader-page.webtoon-reader { padding-bottom: 0; }
+.reader-toolbar-top-enter-active, .reader-toolbar-bottom-enter-active {
+  transition: transform 320ms cubic-bezier(0.22, 1.2, 0.36, 1), opacity 220ms ease-out;
+}
+.reader-toolbar-top-leave-active, .reader-toolbar-bottom-leave-active {
+  transition: transform 220ms ease-in, opacity 180ms ease-in;
+  pointer-events: none;
+}
+.reader-toolbar-top-enter-from, .reader-toolbar-top-leave-to { transform: translateY(-100%); opacity: 0; }
+.reader-toolbar-bottom-enter-from, .reader-toolbar-bottom-leave-to { transform: translateY(100%); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .reader-toolbar-top-enter-active, .reader-toolbar-bottom-enter-active,
+  .reader-toolbar-top-leave-active, .reader-toolbar-bottom-leave-active { transition: none; }
+  .reader-toolbar-top-enter-from, .reader-toolbar-top-leave-to,
+  .reader-toolbar-bottom-enter-from, .reader-toolbar-bottom-leave-to { transform: none; }
+}
+.webtoon-strip { width: min(100%, 860px); margin: 0 auto; overflow-anchor: auto; }
+.webtoon-page { scroll-margin-top: 72px; }
+.webtoon-page:not(.is-loaded) { aspect-ratio: 2 / 3; background: #222b25; }
+.webtoon-page img { display: block; width: 100%; height: auto; margin: 0; }
+.webtoon-page:not(.is-loaded) img { min-height: 100%; }
+.webtoon-image-error { min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; }
+.webtoon-save-status { max-width: 160px; font-size: 11px; color: #a9c8b3; }
