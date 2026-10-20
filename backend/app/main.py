@@ -48,6 +48,8 @@ async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
         raise HTTPException(502, "无法连接 Komga，请检查地址或网络") from None
     if response.status_code == 401:
         raise HTTPException(401, "账号或密码错误，或登录已过期")
+    if response.status_code == 404:
+        raise HTTPException(404, "漫画不存在或当前账号无法访问")
     if response.status_code == 403:
         raise HTTPException(403, "Komga 拒绝访问，请检查账号权限")
     if not response.is_success:
@@ -204,3 +206,71 @@ async def recent_series(request: Request):
         return result
     except (ValueError, KeyError, TypeError, AttributeError):
         raise HTTPException(502, "Komga 最近添加列表格式不正确") from None
+
+# 阅读接口：每个请求都使用当前用户的会话，由 Komga 检查书库权限。
+def read_json(upstream: httpx.Response):
+    try:
+        return upstream.json()
+    except ValueError:
+        raise HTTPException(502, "Komga 返回的数据格式不正确") from None
+
+
+@app.get("/api/series/{series_id}")
+async def series_details(series_id: str, request: Request):
+    from urllib.parse import quote
+    data = read_json(await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
+    metadata = data.get("metadata", {})
+    return {"id": data["id"], "title": metadata.get("title") or data.get("name"), "summary": metadata.get("summary") or "", "booksCount": data.get("booksCount", 0), "publisher": metadata.get("publisher") or "", "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail"}
+
+
+@app.get("/api/series/{series_id}/books")
+async def series_books(series_id: str, request: Request, page: int = 0):
+    from urllib.parse import quote
+    if page < 0:
+        raise HTTPException(422, "页码不能为负数")
+    data = read_json(await komga_request("POST", "/api/v1/books/list", headers={"X-Auth-Token": current_token(request)}, params={"page": page, "size": 48, "sort": "metadata.numberSort,asc"}, json={"condition": {"seriesId": {"operator": "is", "value": series_id}}}))
+    return {"items": [{"id": book["id"], "title": book.get("metadata", {}).get("title") or book.get("name") or "未命名书籍", "pagesCount": book.get("media", {}).get("pagesCount", 0), "thumbnailUrl": f"/api/books/{quote(book['id'], safe='')}/thumbnail"} for book in data["content"]], "last": data["last"]}
+
+
+@app.get("/api/books/{book_id}")
+async def book_details(book_id: str, request: Request):
+    from urllib.parse import quote
+    data = read_json(await komga_request("GET", f"/api/v1/books/{quote(book_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
+    return {"id": data["id"], "seriesId": data["seriesId"], "title": data.get("metadata", {}).get("title") or data.get("name"), "pagesCount": data.get("media", {}).get("pagesCount", 0)}
+
+
+async def book_image(book_id: str, request: Request, suffix: str, params=None):
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from starlette.background import BackgroundTask
+    token = current_token(request)
+    if not KOMGA_URL:
+        raise HTTPException(503, "请先配置 Komga")
+    client = httpx.AsyncClient(timeout=30, follow_redirects=False)
+    try:
+        upstream = await client.send(client.build_request("GET", f"{KOMGA_URL}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
+    except httpx.RequestError:
+        await client.aclose()
+        raise HTTPException(502, "漫画图片连接失败") from None
+    media_type = upstream.headers.get("content-type", "").split(";")[0]
+    if not upstream.is_success or media_type not in {"image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"}:
+        status = upstream.status_code if upstream.status_code in {401, 403, 404} else 502
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(status, "图片不可用，请检查权限、页码或 Komga 状态")
+    async def close():
+        await upstream.aclose()
+        await client.aclose()
+    return StreamingResponse(upstream.aiter_bytes(), media_type=media_type, background=BackgroundTask(close), headers={"X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/api/books/{book_id}/thumbnail")
+async def book_thumbnail(book_id: str, request: Request):
+    return await book_image(book_id, request, "thumbnail")
+
+
+@app.get("/api/books/{book_id}/pages/{page_number}")
+async def book_page(book_id: str, page_number: int, request: Request):
+    if page_number < 1:
+        raise HTTPException(422, "页码从 1 开始")
+    return await book_image(book_id, request, f"pages/{page_number}", {"convert": "jpeg", "zero_based": "false"})
