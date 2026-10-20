@@ -17,6 +17,8 @@ const total = ref(0)
 const last = ref(true)
 const loading = ref(false)
 const searched = ref(false)
+const hasLoadedMore = ref(false)
+const awayFromTop = ref(false)
 const error = ref('')
 const failed = ref(new Set<string>())
 let page = 0
@@ -38,7 +40,10 @@ function handleScroll() {
   loadNearBottom()
 }
 function rememberScroll() {
-  if (scrollContainer.value) scrollPosition = scrollContainer.value.scrollTop
+  if (scrollContainer.value) {
+    scrollPosition = scrollContainer.value.scrollTop
+    awayFromTop.value = scrollPosition > 32
+  }
 }
 onMounted(async () => {
   const saved = searchState.snapshot
@@ -54,9 +59,11 @@ onMounted(async () => {
     last.value = saved.last
     searched.value = saved.searched
     page = saved.page
+    hasLoadedMore.value = saved.page > 1
     scrollPosition = saved.scrollY
     await nextTick()
     if (scrollContainer.value) scrollContainer.value.scrollTop = saved.scrollY
+    rememberScroll()
     if (!saved.searched && saved.keyword.trim()) void search()
   }
 })
@@ -80,6 +87,7 @@ async function search(more = false, resort = false, manual = false) {
   const current = ++version
   if (!more) {
     if (!resort) submitted = keyword.value.trim()
+    hasLoadedMore.value = false
     page = 0
     if (!resort) results.value = []
     failed.value = new Set()
@@ -98,6 +106,7 @@ async function search(more = false, resort = false, manual = false) {
     total.value = data.total
     last.value = data.last
     page++
+    if (more) hasLoadedMore.value = true
   } catch (cause) {
     if (current === version && !(cause instanceof DOMException && cause.name === 'AbortError')) error.value = cause instanceof Error ? cause.message : '搜索失败，请重试'
   } finally {
@@ -138,5 +147,8 @@ onUnmounted(() => { version++; controller?.abort() })
       <button v-else-if="error && !last" class="text-button" @click="search(true)">重试加载</button>
       <span v-else-if="last">已显示全部结果</span>
     </div>
+    <button v-if="hasLoadedMore && awayFromTop" class="search-back-top" aria-label="返回顶部" title="返回顶部" @click="scrollContainer?.scrollTo({ top: 0, behavior: 'smooth' })">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14M12 20V9m-5 5 5-5 5 5" /></svg>
+    </button>
   </main>
 </template>
