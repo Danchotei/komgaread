@@ -13,12 +13,18 @@ const tabTransition = ref('page-static')
 const mainTabs = ['#/', '#/categories', '#/me']
 const pageStage = ref<HTMLElement | null>(null)
 const stageHeight = ref<number | null>(null)
+let animatedNavigation = false
+// 页面栈已保存滚动位置，避免浏览器再自动恢复一次导致跳动。
+const previousScrollRestoration = window.history.scrollRestoration
+window.history.scrollRestoration = 'manual'
 
 // 动画期间固定布局高度，避免旧页面脱离文档流或内容加载导致容器塌缩。
 function lockStageHeight() {
   stageHeight.value = Math.max(pageStage.value?.scrollHeight || 0, window.innerHeight)
 }
 function finishTransition() {
+  if (!animatedNavigation) return
+  animatedNavigation = false
   stageHeight.value = null
   void nextTick(restoreScroll)
 }
@@ -82,7 +88,9 @@ function updateRoute() {
   const restoredPages = historyTarget
   historyTarget = null
   const browserNavigation = restoredPages !== null && !backRequested
-  lockStageHeight()
+  animatedNavigation = !browserNavigation
+  if (animatedNavigation) lockStageHeight()
+  else stageHeight.value = null
   transitioning = true
   const returning = backRequested || (restoredPages !== null && restoredPages.length < pages.value.length)
   if (rootRequested) {
@@ -137,6 +145,7 @@ function handlePopState(event: PopStateEvent) {
 window.addEventListener('popstate', handlePopState)
 window.addEventListener('hashchange', updateRoute)
 onUnmounted(() => {
+  window.history.scrollRestoration = previousScrollRestoration
   window.removeEventListener('scroll', recordScroll)
   window.removeEventListener('app-back', goBack)
   window.removeEventListener('hashchange', updateRoute)
