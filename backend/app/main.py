@@ -116,3 +116,63 @@ async def logout(request: Request):
     response = Response(status_code=204)
     response.delete_cookie(COOKIE_NAME, path="/api", secure=COOKIE_SECURE, httponly=True, samesite="lax")
     return response
+
+# 随机抽取索引，再只读取对应系列，不将整个书库下载到网站。
+@app.get("/api/series/recommendations")
+async def recommendations(request: Request):
+    import asyncio
+    from random import sample
+    from urllib.parse import quote
+
+    token = current_token(request)
+    headers = {"X-Auth-Token": token}
+
+    async def read_page(index: int):
+        upstream = await komga_request(
+            "POST", "/api/v1/series/list", headers=headers,
+            params={"page": index, "size": 1, "sort": "metadata.titleSort,asc"}, json={},
+        )
+        try:
+            page = upstream.json()
+            if not isinstance(page["content"], list) or not isinstance(page["totalElements"], int) or page["totalElements"] < 0:
+                raise ValueError
+            return page
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(502, "Komga 系列列表格式不正确") from None
+
+    first = await read_page(0)
+    total = first["totalElements"]
+    indices = sample(range(total), min(4, total))
+    pages = await asyncio.gather(*(read_page(index) if index else asyncio.sleep(0, result=first) for index in indices))
+    result = []
+    seen = set()
+    try:
+        for page in pages:
+            for series in page["content"]:
+                series_id = series["id"]
+                if not isinstance(series_id, str):
+                    raise ValueError
+                if series_id in seen:
+                    continue
+                seen.add(series_id)
+                result.append({
+                    "id": series_id,
+                    "title": series.get("metadata", {}).get("title") or series.get("name") or "未命名系列",
+                    "booksCount": series.get("booksCount", 0),
+                    "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail",
+                })
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(502, "Komga 系列信息格式不正确") from None
+    return result
+
+
+@app.get("/api/series/{series_id}/thumbnail")
+async def series_thumbnail(series_id: str, request: Request):
+    from urllib.parse import quote
+
+    token = current_token(request)
+    upstream = await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}/thumbnail", headers={"X-Auth-Token": token})
+    media_type = upstream.headers.get("content-type", "").split(";")[0]
+    if media_type not in {"image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"}:
+        raise HTTPException(502, "Komga 返回的封面格式不正确")
+    return Response(upstream.content, media_type=media_type, headers={"X-Content-Type-Options": "nosniff"})

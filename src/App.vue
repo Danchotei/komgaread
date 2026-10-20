@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import LoginView from './components/LoginView.vue'
+import HomeView from './components/HomeView.vue'
 import { authRequest, type User } from './api/auth'
 
 const user = ref<User | null>(null)
@@ -35,15 +36,6 @@ async function logout() {
 
 <template>
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
-  <main v-else-if="user" class="login-page">
-    <section class="login-container login-card">
-      <p class="eyebrow">KOMGAREAD</p>
-      <h1>登录成功</h1>
-      <p class="account-email">{{ user.email }}</p>
-      <p class="intro">已连接 Komga。下一步将在这里展示你的漫画书架。</p>
-      <button class="submit-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
-      <p v-if="message" role="alert">{{ message }}</p>
-    </section>
-  </main>
+  <HomeView v-else-if="user" :user="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
   <LoginView v-else @authenticated="user = $event" />
 </template>
