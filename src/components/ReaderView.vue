@@ -113,7 +113,7 @@ async function load() {
     })
     strip.value?.querySelectorAll<HTMLElement>('[data-page]').forEach(element => observer?.observe(element))
     jumpToPage()
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '书籍加载失败' }
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '章节加载失败' }
 }
 function flushProgress() { clearTimeout(saveTimer); persistPage() }
 function visibilityChanged() { if (document.hidden) flushProgress() }
@@ -145,7 +145,7 @@ onUnmounted(() => {
     </header>
     </Transition>
     <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" @click="load">重试</button></p>
-    <p v-if="!book && !error" role="status">正在加载书籍…</p>
+    <p v-if="!book && !error" role="status">正在加载章节…</p>
     <template v-if="book">
       <p v-if="!book.pagesCount" class="empty-state">暂无可阅读页面，请检查 Komga 是否已完成分析。</p>
       <template v-else>

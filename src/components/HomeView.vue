@@ -88,7 +88,7 @@ onMounted(loadRecent)
 
 <template>
   <div class="home-page">
-    <AppHeader />
+    <AppHeader title="主页" />
     <main>
       <section aria-labelledby="recent-title" :aria-busy="recentLoading">
         <div class="section-heading">
@@ -105,7 +105,7 @@ onMounted(loadRecent)
               <span v-else class="cover-fallback">暂无封面</span>
             </a>
             <h3 :title="item.title">{{ item.title }}</h3>
-            <p>{{ item.booksCount }} 篇</p>
+            <p>{{ item.booksCount }} 章</p>
           </article>
         </div>
       </section>
@@ -126,7 +126,7 @@ onMounted(loadRecent)
               <span v-else class="cover-fallback">暂无封面</span>
             </a>
             <h3 :title="item.title">{{ item.title }}</h3>
-            <p>{{ item.booksCount }} 篇</p>
+            <p>{{ item.booksCount }} 章</p>
           </article>
         </div>
       </section>

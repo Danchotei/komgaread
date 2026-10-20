@@ -1,4 +1,6 @@
 :root {
+  --page-duration: 500ms;
+  --page-easing: cubic-bezier(0.4, 0, 0.2, 1);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #24332d;
   background: #f5f7f3;
@@ -9,10 +11,9 @@
 }
 
 /* 页面以整屏水平滑动切换，不改变透明度。 */
-.series-slide-enter-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); }
+.series-slide-enter-active { transition: transform var(--page-duration) var(--page-easing); }
 .series-slide-enter-from { transform: translateX(100vw); }
-.series-slide-enter-to { transform: translateX(0); }
-.series-slide-leave-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
+.series-slide-leave-active { transition: transform var(--page-duration) var(--page-easing); position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
 .series-slide-leave-to { transform: translateX(-100vw); }
 @media (prefers-reduced-motion: reduce) {
   .series-slide-enter-active, .series-slide-leave-active { transition: none; }
@@ -21,9 +22,9 @@
 
 * { box-sizing: border-box; }
 .page-stage { position: relative; overflow-x: clip; }
-.search-down-enter-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); }
+.search-down-enter-active { transition: transform var(--page-duration) var(--page-easing); }
 .search-down-enter-from { transform: translateY(-100dvh); }
-.search-up-enter-active { animation: search-page-pop 500ms cubic-bezier(0.22, 1, 0.36, 1); transform-origin: center; }
+.search-up-enter-active { animation: search-page-pop var(--page-duration) cubic-bezier(0.22, 1, 0.36, 1); transform-origin: center; }
 @keyframes search-page-pop {
   0% { transform: scale(0.94); }
   70% { transform: scale(1.015); }
@@ -34,7 +35,7 @@
   .search-down-enter-from { transform: none; }
   .search-up-enter-active { animation: none; }
 }
-.series-back-enter-active, .series-back-leave-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); }
+.series-back-enter-active, .series-back-leave-active { transition: transform var(--page-duration) var(--page-easing); }
 .series-back-leave-active { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
 .series-back-enter-from { transform: translateX(-100vw); }
 .series-back-leave-to { transform: translateX(100vw); }
@@ -44,7 +45,7 @@
 }
 .tab-slide-left-enter-active, .tab-slide-right-enter-active,
 .tab-slide-left-leave-active, .tab-slide-right-leave-active {
-  transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--page-duration) var(--page-easing);
 }
 /* 旧页面脱离文档流，避免两个页面上下堆叠。底部导航不参与滑动。 */
 .tab-slide-left-leave-active, .tab-slide-right-leave-active { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
@@ -104,12 +105,17 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 }
 .home-page > main { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .home-page > main > section { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
-.home-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid #dce4dc; }
+.home-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid #dce4dc; }
 .home-header .brand { margin: 0; font-size: 18px; }
 .home-header .brand-icon { width: 28px; height: 32px; font-size: 19px; }
 .header-search { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: #285d46; }
 .header-search:hover { background: #e5ede3; }
 .header-search svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.header-page-title { position: absolute; left: 50%; transform: translateX(-50%); font-size: 15px; font-weight: 600; color: #526c5f; pointer-events: none; }
+@media (max-width: 380px) {
+  .home-header .brand { font-size: 15px; gap: 6px; }
+  .header-page-title { font-size: 13px; left: 61%; }
+}
 .text-button { border: 1px solid #bdcbc0; border-radius: 8px; padding: 6px 12px; min-height: 44px; background: transparent; color: #285d46; font-size: 13px; white-space: nowrap; }
 .text-button:hover { background: #e7eee6; }
 .text-button:disabled { opacity: .6; cursor: wait; }
@@ -166,7 +172,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .book-link h3 { margin: 6px 0 2px; font-size: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .book-link p { margin: 0; font-size: 12px; color: #64736a; }
 .load-more { margin-top: 24px; }
-.reader-page { background: #19201c; color: #e9eee9; min-height: 100dvh; padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+.reader-page { background: #19201c; color: #e9eee9; min-height: 100dvh; }
 .reader-header { display: flex; align-items: center; gap: 16px; padding: 12px 16px; }
 .reader-header h1 { font-size: 16px; overflow-wrap: anywhere; }
 .reader-page .text-button { color: #e9eee9; border-color: #657c6c; }
@@ -190,7 +196,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .series-metadata dt { flex-shrink: 0; color: #64736a; }
 .series-metadata dd { margin: 0; overflow-wrap: anywhere; text-align: left; }
 .metadata-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.metadata-tags span { background: #e8eee7; padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+.metadata-button { border: 0; background: #e8eee7; padding: 6px 10px; min-height: 36px; border-radius: 6px; font-size: 12px; color: #285d46; text-align: left; }
+.metadata-button:hover { background: #d9e6d8; }
 .books-heading { display: flex; align-items: baseline; gap: 10px; font-size: 18px; }
 .books-heading small { color: #64736a; font-size: 12px; font-weight: 400; }
 
@@ -225,7 +232,6 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 
 /* Webtoon：图片自然高度、无缝纵向拼接；未加载页预留空间避免全部挤在顶部。 */
 .webtoon-reader .reader-header { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-top: max(12px, env(safe-area-inset-top, 0px)); background: #19201cf5; }
-.reader-page.webtoon-reader { padding-bottom: 0; }
 .reader-toolbar-top-enter-active, .reader-toolbar-bottom-enter-active {
   transition: transform 320ms cubic-bezier(0.22, 1.2, 0.36, 1), opacity 220ms ease-out;
 }
@@ -250,6 +256,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .webtoon-save-status { max-width: 160px; font-size: 11px; color: #a9c8b3; }
 
 .search-form { margin: 20px 0; }
+.return-series { margin-top: 16px; }
 /* 搜索页独立滚动，不受路由切换时 window.scrollTo(0, 0) 影响。 */
 .tab-page.search-page { height: 100dvh; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .search-input-row { display: flex; gap: 10px; }
@@ -259,3 +266,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 @media(max-width: 640px) { .search-results { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 .search-result-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding-top: 24px; }
+.category-grid a { display: grid; place-items: center; min-height: 80px; padding: 12px 6px; border: 1px solid #dce4dc; border-radius: 12px; background: #fff; color: #285d46; text-decoration: none; font-size: 16px; font-weight: 600; }
+.category-grid a:hover { background: #eaf0e7; border-color: #9ab6a3; }
+.category-grid a:active { background: #e0eade; }
+
+.search-card-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 2px 8px; }
+.search-card-meta time { font-size: 11px; }
+.search-results .book-link h3 { line-height: 1.5; height: 3em; }

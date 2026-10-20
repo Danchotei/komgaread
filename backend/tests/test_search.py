@@ -134,3 +134,18 @@ def test_sort_last_chapter_release_date(monkeypatch, direction):
     assert first['last'] is False and second['last'] is True
     assert first['total'] == 26
     assert second['items'][-1]['lastReleaseDate'] is None
+
+@pytest.mark.parametrize('kind', ['author', 'genre', 'tag'])
+def test_metadata_exact_match(monkeypatch, kind):
+    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    async def upstream(method, path, **kwargs):
+        if method == 'GET':
+            values = [{'name': name, 'role': 'writer'} for name in ['学生', '学生会', '學生']] if kind == 'author' else ['学生', '学生会', '學生']
+            return httpx.Response(200, json={'content': values})
+        expected = {'name': '学生', 'role': 'writer'} if kind == 'author' else '学生'
+        assert kwargs['json']['condition'] == {'anyOf': [{kind: {'operator': 'is', 'value': expected}}]}
+        return httpx.Response(200, json={'content': [], 'last': True, 'totalElements': 0})
+    monkeypatch.setattr(main, 'komga_request', upstream)
+    client = TestClient(main.app)
+    client.cookies.set(main.COOKIE_NAME, 'test')
+    assert client.get('/api/search', params={'q': '学生', 'type': kind, 'exact': 'true'}).status_code == 200

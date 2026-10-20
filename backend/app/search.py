@@ -16,7 +16,7 @@ def create_search_router(
     limiter = asyncio.Semaphore(3)
 
     @router.get("/search")
-    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None):
+    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None, exact: bool = False):
         from urllib.parse import quote
         if type not in {"all", "title", "author", "genre", "tag"} or page < 0 or not q.strip() or len(q) > 200:
             raise HTTPException(422, "请选择搜索类型并输入 1–200 字的关键词")
@@ -25,7 +25,7 @@ def create_search_router(
         headers = {"X-Auth-Token": current_token(request)}
         keyword = q.strip()
         from .translate import keyword_variants
-        variants = keyword_variants(keyword)
+        variants = [keyword] if exact else keyword_variants(keyword)
         conditions = []
         if type in {"all", "title"}:
             conditions.extend({"title": {"operator": "contains", "value": value}} for value in variants)
@@ -48,6 +48,8 @@ def create_search_router(
                 raise match
             kind, values = match
             for value in values:
+                if exact and (value.get("name") if kind == "author" else value) != keyword:
+                    continue
                 if kind == "author":
                     value = {"name": value["name"], "role": value["role"]}
                     key = (kind, value["name"], value["role"])
