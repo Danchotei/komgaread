@@ -6,25 +6,27 @@ import SeriesView from './components/SeriesView.vue'
 import ReaderView from './components/ReaderView.vue'
 import BottomNav from './components/BottomNav.vue'
 import SearchView from './components/SearchView.vue'
+import AppHeader from './components/AppHeader.vue'
 import { authRequest, type User } from './api/auth'
 import { resetSearchState } from './searchState'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
 // 返回由页面层级决定，不再把浏览器历史中的阅读页当作系列的父页面。
-// 0：主导航页面；1：系列详情；2：阅读器。
+// 0：主导航页面；1：搜索；2：系列详情；3：阅读器。
 function pageLevel(value: string) {
-  if (value.startsWith('#/books/')) return 2
-  if (value.startsWith('#/series/')) return 1
+  if (value.startsWith('#/books/')) return 3
+  if (value.startsWith('#/series/')) return 2
+  if (value === '#/search') return 1
   return 0
 }
 let parentTab = '#/'
 try {
   const saved = sessionStorage.getItem('komgaread-parent-tab')
-  if (saved && ['#/', '#/categories', '#/me'].includes(saved)) parentTab = saved
+  if (saved && ['#/', '#/categories', '#/me', '#/search'].includes(saved)) parentTab = saved
 } catch { /* 存储不可用时回到主页。 */ }
 function rememberTab(value: string) {
-  if (!['#/', '#/categories', '#/me'].includes(value)) return
+  if (!['#/', '#/categories', '#/me', '#/search'].includes(value)) return
   parentTab = value
   try { sessionStorage.setItem('komgaread-parent-tab', value) } catch { /* 保留内存中的值。 */ }
 }
@@ -45,6 +47,9 @@ function updateRoute() {
     ? (to > from ? 'tab-slide-left' : 'tab-slide-right')
     : 'page-static'
   if (fromLevel > toLevel) tabTransition.value = 'series-back'
+  else if (fromLevel < toLevel) tabTransition.value = 'series-slide'
+  if (window.location.hash === '#/search' && fromLevel === 0) tabTransition.value = 'search-down'
+  if (hash.value === '#/search' && toLevel === 0) tabTransition.value = 'search-up'
   rememberTab(window.location.hash)
   hash.value = window.location.hash
   window.scrollTo(0, 0)
@@ -106,9 +111,14 @@ async function logout() {
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
   <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" @back="goBackFromSeries" />
   <ReaderView v-else-if="user && route?.type === 'books'" :key="route.id" :book-id="route.id" />
-  <SearchView v-else-if="user && activeTab === 'categories'" />
+  <SearchView v-else-if="user && hash === '#/search'" />
+  <main v-else-if="user && activeTab === 'categories'" key="categories" class="tab-page">
+    <AppHeader />
+    <h1 class="tab-title">分类</h1>
+  </main>
   <main v-else-if="user && activeTab === 'me'" :key="activeTab" class="tab-page">
-    <h1>我</h1>
+    <AppHeader />
+    <h1 class="tab-title">我</h1>
 
     <p class="account-email">{{ user.email }}</p>
     <button class="text-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
@@ -118,5 +128,5 @@ async function logout() {
   <LoginView v-else @authenticated="handleLogin" />
   </Transition>
   </div>
-  <BottomNav v-if="user && !checking && !route" :active="activeTab" />
+  <BottomNav v-if="user && !checking && !route" :active="hash === '#/search' ? undefined : activeTab" />
 </template>

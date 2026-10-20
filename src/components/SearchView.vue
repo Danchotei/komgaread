@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
 import { searchState } from '../searchState'
+import AppHeader from './AppHeader.vue'
 interface Series { id: string; title: string; booksCount: number; thumbnailUrl: string }
 const order = ref<'asc' | 'desc'>('desc')
 const keyword = ref('')
@@ -88,7 +89,8 @@ onUnmounted(() => { version++; controller?.abort() })
 
 <template>
   <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="rememberScroll">
-    <h1>分类</h1>
+    <AppHeader />
+    <h1 class="tab-title">搜索</h1>
     <form class="search-form" @submit.prevent="search()">
       <div class="search-input-row"><input v-model="keyword" aria-label="搜索关键词" placeholder="搜索标题、作者、分类或标签" maxlength="200" required /><button class="text-button" type="submit">搜索</button></div>
 

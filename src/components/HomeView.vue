@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import AppHeader from './AppHeader.vue'
 
 
 interface Series {
@@ -87,9 +88,7 @@ onMounted(loadRecent)
 
 <template>
   <div class="home-page">
-    <header class="home-header">
-      <a class="brand" href="./"><span class="brand-icon" aria-hidden="true">K</span>KomgaRead</a>
-    </header>
+    <AppHeader />
     <main>
       <section aria-labelledby="recent-title" :aria-busy="recentLoading">
         <div class="section-heading">

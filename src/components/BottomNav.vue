@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ active: 'home' | 'categories' | 'me' }>()
+defineProps<{ active?: 'home' | 'categories' | 'me' }>()
 </script>
 
 <template>
