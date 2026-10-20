@@ -52,25 +52,14 @@ function rememberScroll() {
     awayFromTop.value = scrollPosition > 32
   }
 }
-onMounted(async () => {
-  const saved = searchState.snapshot
-  if (saved) {
-    keyword.value = saved.keyword
-    submitted = saved.submitted
-    filterType = saved.filterType || 'all'
-    exact = saved.exact || false
-    order.value = saved.order
-    results.value = [...saved.results]
-    total.value = saved.total
-    last.value = saved.last
-    searched.value = saved.searched
-    page = saved.page
-    hasLoadedMore.value = saved.page > 1
-    scrollPosition = saved.scrollY
-    await nextTick()
-    if (scrollContainer.value) scrollContainer.value.scrollTop = saved.scrollY
-    rememberScroll()
-    if (!saved.searched && saved.keyword.trim()) void search()
+onMounted(() => {
+  const entry = searchState.pendingSearch
+  searchState.pendingSearch = null
+  if (entry) {
+    keyword.value = entry.keyword
+    filterType = entry.filterType || 'all'
+    exact = entry.exact || false
+    if (entry.keyword.trim()) void search()
   }
 })
 onBeforeUnmount(() => {

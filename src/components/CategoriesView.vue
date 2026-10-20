@@ -5,10 +5,7 @@ import { searchState } from '../searchState'
 const categories = ['全彩', '长篇', '同人', '短篇', '单行本', 'AI', '纯爱', 'SM', 'NTR', '强暴', '后宫', '性转换']
 
 function selectCategory(name: string) {
-  searchState.snapshot = {
-    keyword: name, submitted: name, order: 'desc', results: [],
-    total: 0, last: true, searched: false, page: 0, scrollY: 0,
-  }
+  searchState.pendingSearch = { keyword: name }
 }
 </script>
 

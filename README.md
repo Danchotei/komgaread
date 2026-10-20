@@ -54,7 +54,8 @@ Vite 开发代理把 /api 转发到 127.0.0.1:8000，浏览器不直接访问 Ko
 ## 代码入口
 
 ```text
-src/App.vue                  登录状态、页面层级和导航动画
+src/App.vue                  登录状态、页面栈、历史恢复和导航动画
+src/navigation.ts            History API 站内导航入口
 src/components/LoginView.vue 登录表单
 src/components/HomeView.vue  最近添加、每日推荐
 src/components/SearchView.vue 搜索、排序和结果分页
@@ -62,7 +63,7 @@ src/components/SeriesView.vue 系列详情、章节列表
 src/components/ReaderView.vue Webtoon 阅读与进度保存
 src/components/BottomNav.vue 底部导航图标
 src/api/                     前端接口请求及进度写入队列
-src/searchState.ts           当前登录期间的搜索内存快照
+src/searchState.ts           新搜索的一次性关键词及筛选参数
 src/style.css                响应式布局和动画
 backend/app/main.py          应用入口、认证、系列及阅读接口
 backend/app/search.py        独立搜索接口，由 main.py 注册
