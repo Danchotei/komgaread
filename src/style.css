@@ -207,7 +207,10 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .reader-page .text-button { color: #e9eee9; border-color: #657c6c; }
 .reader-page .text-button:hover { background: #344b3d; }
 .reader-page .text-button:disabled { opacity: .4; cursor: default; }
-.reader-controls { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; align-items: center; background: #19201cf5; padding: 12px 12px max(12px, env(safe-area-inset-bottom, 0px)); }
+.reader-controls { position: fixed; bottom: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; align-items: center; background: #19201cf5; padding: 12px 12px max(12px, env(safe-area-inset-bottom, 0px)); }
+.chapter-previous, .chapter-next { position: relative; top: 6px; }
+.chapter-previous { margin-left: 36px; margin-right: auto; }
+.chapter-next { margin-left: auto; margin-right: 36px; }
 .page-picker { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 12px; }
 .page-picker input { min-height: 44px; width: clamp(50px, 15vw, 160px); padding: 0; accent-color: #7bad91; }
 @media (max-width: 480px) {
@@ -283,6 +286,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .webtoon-page:not(.is-loaded) img { min-height: 100%; }
 .webtoon-image-error { min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; }
 .webtoon-save-status { max-width: 160px; font-size: 11px; color: #a9c8b3; }
+@media (max-width: 600px) {
+  .reader-controls .page-picker { gap: 4px; font-size: 11px; }
+  .reader-controls .page-picker input { width: clamp(40px, 14vw, 84px); }
+  .reader-controls .webtoon-save-status { order: 1; flex-basis: 100%; max-width: none; text-align: center; }
+}
 
 .search-form { margin: 20px 0; }
 .return-series { margin-top: 16px; }

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { getJson, saveProgress } from '../api/library'
+import { navigateTo } from '../navigation'
+import type { ChapterInfo } from '../seriesState'
 const props = defineProps<{ bookId: string }>()
 interface Book { title: string; seriesId: string; pagesCount: number; readProgress: { page: number; completed: boolean } | null }
 const book = ref<Book | null>(null)
@@ -14,6 +16,41 @@ const loaded = ref(new Set<number>())
 const retries = ref<Record<number, number>>({})
 const strip = ref<HTMLElement | null>(null)
 const controlsVisible = ref(false)
+const previousChapter = ref<string | null>(null)
+const nextChapter = ref<string | null>(null)
+let wasAtBottom = false
+let lastScrollY = window.scrollY
+async function loadAdjacentChapters(seriesId: string) {
+  const chapters: ChapterInfo[] = []
+  try {
+    for (let index = 0; ; index++) {
+      const result = await getJson<{ items: ChapterInfo[]; last: boolean }>(`/api/series/${encodeURIComponent(seriesId)}/books?page=${index}&order=asc`)
+      if (disposed) return
+      chapters.push(...result.items)
+      if (result.last || !result.items.length) break
+    }
+    const index = chapters.findIndex(chapter => chapter.id === props.bookId)
+    previousChapter.value = index > 0 ? chapters[index - 1]!.id : null
+    nextChapter.value = index >= 0 ? chapters[index + 1]?.id ?? null : null
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '相邻章节加载失败'
+  }
+}
+async function changeChapter(id: string | null) {
+  if (!id || returning.value) return
+  returning.value = true
+  clearTimeout(saveTimer)
+  updateVisiblePage()
+  persistPage()
+  try {
+    await latestSave
+    // 替换当前章节，浏览器手势返回也直接回系列，而不是上一章。
+    navigateTo(`#/books/${encodeURIComponent(id)}`, true)
+  } catch {
+    saveError.value = true
+    saveMessage.value = '进度未保存，请重试后切换章节'
+  } finally { returning.value = false }
+}
 let tapStart: { x: number; y: number; scrollY: number } | null = null
 function startTap(event: PointerEvent) {
   tapStart = event.isPrimary ? { x: event.clientX, y: event.clientY, scrollY: window.scrollY } : null
@@ -36,7 +73,7 @@ let displayedPage = 0
 let lastQueuedPage = 0
 let disposed = false
 let active = true
-onActivated(() => { active = true; onScroll() })
+onActivated(() => { active = true; lastScrollY = window.scrollY; onScroll() })
 onDeactivated(() => { active = false; clearTimeout(saveTimer); cancelAnimationFrame(frame); frame = 0; persistPage() })
 
 function persistPage(force = false) {
@@ -60,6 +97,11 @@ function persistPage(force = false) {
 function updateVisiblePage() {
   frame = 0
   if (!active) return
+  const atBottom = !!book.value?.pagesCount && loaded.value.has(book.value.pagesCount)
+    && !!strip.value && strip.value.getBoundingClientRect().bottom <= window.innerHeight + 2
+  // 只在到达底部的瞬间展开，仍允许用户轻点收起工具栏。
+  if (atBottom && !wasAtBottom) controlsVisible.value = true
+  wasAtBottom = atBottom
   const line = Math.min(window.innerHeight * 0.35, 240)
   const candidates = [...visible.entries()].filter(([number]) => loaded.value.has(number))
   const current = candidates.find(([, element]) => {
@@ -74,7 +116,15 @@ function updateVisiblePage() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => persistPage(), 400)
 }
-function onScroll() { if (active && !frame) frame = requestAnimationFrame(updateVisiblePage) }
+function onScroll(event?: Event) {
+  if (!active) return
+  // 图片加载、窗口缩放也会刷新页码，仅实际滚动时收起菜单。
+  if (event?.type === 'scroll') {
+    if (Math.abs(window.scrollY - lastScrollY) > 1) controlsVisible.value = false
+    lastScrollY = window.scrollY
+  }
+  if (!frame) frame = requestAnimationFrame(updateVisiblePage)
+}
 function imageLoaded(number: number) { loaded.value.add(number); onScroll() }
 function retryImage(number: number) { failed.value.delete(number); retries.value[number] = (retries.value[number] || 0) + 1 }
 function jumpToPage() {
@@ -100,7 +150,12 @@ async function load() {
   try {
     const data = await getJson<Book>(`/api/books/${encodeURIComponent(props.bookId)}`)
     if (disposed) return
+    window.dispatchEvent(new CustomEvent('app-reader-ready', { detail: {
+      bookHash: `#/books/${encodeURIComponent(props.bookId)}`,
+      seriesHash: `#/series/${encodeURIComponent(data.seriesId)}`,
+    } }))
     book.value = data
+    void loadAdjacentChapters(data.seriesId)
     page.value = Math.max(1, Math.min(data.pagesCount || 1, data.readProgress?.page || 1))
     await nextTick()
     if (disposed) return
@@ -161,9 +216,11 @@ onUnmounted(() => {
         </div>
         <Transition name="reader-toolbar-bottom">
         <nav v-show="controlsVisible" class="reader-controls" aria-label="阅读进度">
+          <button class="text-button chapter-previous" :disabled="!previousChapter || returning" @click="changeChapter(previousChapter)">上一章</button>
           <label class="page-picker">页码 <input v-model.number="page" type="range" min="1" :max="book.pagesCount" :aria-valuetext="`${page} / ${book.pagesCount}`" @change="jumpToPage" /><span>{{ page }} / {{ book.pagesCount }}</span></label>
           <span class="webtoon-save-status" role="status">{{ saveMessage }}</span>
           <button v-if="saveError" class="text-button" @click="persistPage(true)">重试保存</button>
+          <button class="text-button chapter-next" :disabled="!nextChapter || returning" @click="changeChapter(nextChapter)">下一章</button>
         </nav>
         </Transition>
       </template>

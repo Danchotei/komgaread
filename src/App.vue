@@ -94,7 +94,7 @@ window.addEventListener('app-back', goBack)
 function tabIndex(value: string) {
   return mainTabs.indexOf(value || '#/')
 }
-function updateRoute() {
+function updateRoute(event?: Event) {
   const target = window.location.hash || '#/'
   // 浏览器后退会先触发 popstate，再触发 hashchange；同一次导航只处理一次。
   if (target === (hash.value || '#/') && !rootRequested && !historyTarget) return
@@ -112,6 +112,9 @@ function updateRoute() {
     pages.value = [{ key: nextKey++, hash: target, scrollY: 0 }]
   }
   else if (restoredPages) pages.value = restoredPages
+  else if (event instanceof CustomEvent && event.detail?.replace) {
+    pages.value.splice(-1, 1, { key: nextKey++, hash: target, scrollY: 0 })
+  }
   else {
     pages.value.push({ key: nextKey++, hash: target, scrollY: 0 })
   }
@@ -159,12 +162,27 @@ function handlePopState(event: PopStateEvent) {
 window.addEventListener('popstate', handlePopState)
 window.addEventListener('hashchange', updateRoute)
 window.addEventListener('app-navigate', updateRoute)
+// 阅读期间只保留一个章节历史条目，其前一个条目固定为所属系列。
+function prepareReaderHistory(event: Event) {
+  const { bookHash, seriesHash } = (event as CustomEvent<{ bookHash: string; seriesHash: string }>).detail
+  if (hash.value !== bookHash) return
+  if (pages.value[pages.value.length - 2]?.hash === seriesHash) return
+  const reader = currentPage.value
+  pages.value.splice(-1, 1, { key: nextKey++, hash: seriesHash, scrollY: 0 })
+  window.history.replaceState(null, '', seriesHash)
+  markHistory()
+  pages.value.push(reader)
+  window.history.pushState(null, '', bookHash)
+  markHistory()
+}
+window.addEventListener('app-reader-ready', prepareReaderHistory)
 onUnmounted(() => {
   window.history.scrollRestoration = previousScrollRestoration
   window.removeEventListener('scroll', recordScroll)
   window.removeEventListener('app-back', goBack)
   window.removeEventListener('hashchange', updateRoute)
   window.removeEventListener('app-navigate', updateRoute)
+  window.removeEventListener('app-reader-ready', prepareReaderHistory)
   window.removeEventListener('popstate', handlePopState)
 })
 const route = computed(() => {
