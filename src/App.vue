@@ -242,7 +242,8 @@ async function logout() {
     <main v-if="checking" class="login-page" role="status">正在检查服务状态…</main>
     <main v-else-if="startupError" class="login-page"><div class="login-container"><p class="form-message" role="alert">{{ startupError }}</p><button class="submit-button" @click="checkStartup">重试连接</button></div></main>
     <SetupView v-else-if="setupStatus && !setupStatus.configured" @configured="checkStartup" />
-    <Transition v-else-if="user" :name="tabTransition" @after-enter="finishTransition" @enter-cancelled="finishTransition">
+    <!-- 无动画导航必须关闭 CSS 过渡，不能仅使用没有样式的 page-static 名称。 -->
+    <Transition v-else-if="user" :name="tabTransition" :css="tabTransition !== 'page-static'" @after-enter="finishTransition" @enter-cancelled="finishTransition">
       <KeepAlive :key="generation">
         <PageView :key="currentPage.key" :page-hash="currentPage.hash" :user="user" :logging-out="loggingOut" :message="message" :can-back="pages.length > 1" @back="goBack" @logout="logout" />
       </KeepAlive>
