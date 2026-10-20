@@ -57,3 +57,21 @@ def test_bad_upstream_and_expired_session(monkeypatch):
     assert client.get("/api/series/recommendations").status_code == 502
     main.sessions["test"] = ("token", 0)
     assert client.get("/api/series/recommendations").status_code == 401
+
+
+@pytest.mark.parametrize("total", [0, 2, 4])
+def test_recent_series_order_and_permissions(monkeypatch, total):
+    async def upstream(method, path, **kwargs):
+        assert method == "POST" and path == "/api/v1/series/list"
+        assert kwargs["headers"]["X-Auth-Token"] == "recent-token"
+        assert kwargs["params"] == {"page": 0, "size": 4, "sort": "createdDate,desc"}
+        return httpx.Response(200, json={"content": [{"id": str(i), "metadata": {"title": f"Recent {i}"}, "booksCount": i} for i in range(total)]})
+    monkeypatch.setattr(main, "komga_request", upstream)
+    monkeypatch.setattr(main, "sessions", {"test": ("recent-token", main.time() + 60)})
+    client = TestClient(main.app)
+    assert client.get("/api/series/recent").status_code == 401
+    client.cookies.set(main.COOKIE_NAME, "test")
+    response = client.get("/api/series/recent")
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [str(i) for i in range(total)]
+    assert all(item["thumbnailUrl"].startswith("/api/series/") for item in response.json())

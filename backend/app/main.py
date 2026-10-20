@@ -176,3 +176,31 @@ async def series_thumbnail(series_id: str, request: Request):
     if media_type not in {"image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"}:
         raise HTTPException(502, "Komga 返回的封面格式不正确")
     return Response(upstream.content, media_type=media_type, headers={"X-Content-Type-Options": "nosniff"})
+
+@app.get("/api/series/recent")
+async def recent_series(request: Request):
+    from urllib.parse import quote
+
+    token = current_token(request)
+    upstream = await komga_request(
+        "POST", "/api/v1/series/list", headers={"X-Auth-Token": token},
+        params={"page": 0, "size": 4, "sort": "createdDate,desc"}, json={},
+    )
+    try:
+        content = upstream.json()["content"]
+        if not isinstance(content, list):
+            raise ValueError
+        result = []
+        for series in content[:4]:
+            series_id = series["id"]
+            if not isinstance(series_id, str):
+                raise ValueError
+            result.append({
+                "id": series_id,
+                "title": series.get("metadata", {}).get("title") or series.get("name") or "未命名系列",
+                "booksCount": series.get("booksCount", 0),
+                "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail",
+            })
+        return result
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(502, "Komga 最近添加列表格式不正确") from None

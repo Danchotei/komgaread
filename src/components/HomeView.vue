@@ -15,6 +15,28 @@ const series = ref<Series[]>([])
 const loading = ref(false)
 const error = ref('')
 const failedCovers = ref<Set<string>>(new Set())
+const recentSeries = ref<Series[]>([])
+const recentLoading = ref(false)
+const recentError = ref('')
+const recentFailedCovers = ref<Set<string>>(new Set())
+
+async function loadRecent() {
+  recentLoading.value = true
+  recentError.value = ''
+  try {
+    const response = await fetch('/api/series/recent', { credentials: 'same-origin' })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null)
+      throw new Error(typeof detail?.detail === 'string' ? detail.detail : '最近添加加载失败')
+    }
+    recentSeries.value = await response.json() as Series[]
+    recentFailedCovers.value = new Set()
+  } catch (cause) {
+    recentError.value = cause instanceof Error ? cause.message : '网络连接失败，请重试'
+  } finally {
+    recentLoading.value = false
+  }
+}
 
 async function loadRecommendations() {
   if (loading.value) return
@@ -36,6 +58,7 @@ async function loadRecommendations() {
 }
 
 onMounted(loadRecommendations)
+onMounted(loadRecent)
 </script>
 
 <template>
@@ -46,6 +69,25 @@ onMounted(loadRecommendations)
     </header>
     <main>
       <p v-if="logoutMessage" role="alert">{{ logoutMessage }}</p>
+      <section aria-labelledby="recent-title" :aria-busy="recentLoading">
+        <div class="section-heading">
+          <h2 id="recent-title">最近添加</h2>
+          <button v-if="recentError" class="text-button" :disabled="recentLoading" @click="loadRecent">重试</button>
+        </div>
+        <p v-if="recentError" class="form-message" role="alert">{{ recentError }}</p>
+        <p v-if="recentLoading" class="empty-state" role="status">正在加载…</p>
+        <p v-else-if="!recentError && !recentSeries.length" class="empty-state">暂无系列</p>
+        <div v-if="recentSeries.length" class="recent-series-row" tabindex="0" role="region" aria-label="最近添加的系列，可左右滚动">
+          <article v-for="item in recentSeries" :key="item.id" class="series-card">
+            <div class="series-cover">
+              <img v-if="!recentFailedCovers.has(item.id)" :src="item.thumbnailUrl" :alt="item.title + '封面'" loading="lazy" @error="recentFailedCovers.add(item.id)" />
+              <span v-else class="cover-fallback">暂无封面</span>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.booksCount }} 篇</p>
+          </article>
+        </div>
+      </section>
       <section aria-labelledby="recommendations-title" :aria-busy="loading">
         <div class="section-heading">
           <div>
@@ -63,7 +105,7 @@ onMounted(loadRecommendations)
               <span v-else class="cover-fallback">暂无封面</span>
             </div>
             <h3>{{ item.title }}</h3>
-            <p>{{ item.booksCount }} 本</p>
+            <p>{{ item.booksCount }} 篇</p>
           </article>
         </div>
       </section>
