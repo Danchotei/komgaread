@@ -8,7 +8,7 @@ services:
       - "${WEB_PORT:-8080}:8080"
     environment:
       KOMGA_URL: ${KOMGA_URL:?Please set KOMGA_URL in .env}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - manga-data:/app/backend/data

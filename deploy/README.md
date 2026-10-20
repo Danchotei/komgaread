@@ -31,8 +31,9 @@ Supervisor 负责进程重启和退出信号；健康检查同时检查前端和
 新建部署文件夹，放入 compose.yaml，将 deploy/.env.example 复制为同级 .env。
 直接拉镜像无须上传 Dockerfile、源码和 nginx.conf（已包含在镜像内）。
 编辑 .env：KOMGA_URL 填容器可访问的 Komga 地址；localhost 是容器自己，不是 NAS。
-ALLOWED_ORIGINS 填浏览器访问网页的来源，如 http://192.168.1.10:8080，
-不要带末尾斜杠或路径；多个来源以英文逗号分隔，不加空格。
+ALLOWED_ORIGINS 通常留空：后端按 Origin 的协议、域名、端口与请求入口自动校验同源。
+NAS 的每层反向代理都必须保留浏览器的原始 Host（含非默认端口），容器内 Nginx 已配置。
+仅刻意使用不同来源访问 API 时才填写额外白名单；多个来源以英文逗号分隔。
 
 ```sh
 docker compose pull
@@ -47,11 +48,12 @@ docker compose logs --tail=100
 HTTPS 上线时，NAS 反向代理将网页域名转发到 NAS:8080，再配置：
 
 ```dotenv
-ALLOWED_ORIGINS=https://你的网页域名
 COOKIE_SECURE=true
 ```
 
 重新执行 docker compose up -d --no-build 使环境变量生效。
+COOKIE_SECURE=true 同时声明外部入口使用 HTTPS，即使 NAS 到容器之间使用 HTTP 也能校验。
+后端不会直接使用 X-Forwarded-Host 放行请求；外层反代须保留 Host。
 
 ## 更新、回退与数据
 

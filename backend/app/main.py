@@ -2,6 +2,7 @@ from pathlib import Path
 from time import time
 from secrets import token_urlsafe
 import os
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 KOMGA_URL = os.getenv("KOMGA_URL", "").rstrip("/")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
-ALLOWED_ORIGINS = set(os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(","))
+ALLOWED_ORIGINS = {value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if value.strip()}
 COOKIE_NAME = "komgaread_session"
 SESSION_SECONDS = 8 * 60 * 60
 
@@ -25,11 +26,37 @@ class LoginInput(BaseModel):
     password: str = Field(min_length=1, max_length=4096)
 
 
+def origin_key(value: str):
+    """只接受 HTTP(S) 来源，统一默认端口；拒绝路径、用户信息等异常格式。"""
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None or parsed.path or parsed.query or parsed.fragment:
+            return None
+        return parsed.scheme, parsed.hostname.lower(), parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
+
+
+def permitted_origin(request: Request) -> bool:
+    origin = origin_key(request.headers.get("origin", ""))
+    if origin is None:
+        return False
+    if any(origin == origin_key(value) for value in ALLOWED_ORIGINS):
+        return True
+    # HTTPS 在 NAS 外层终止时，内部连接仍是 HTTP；COOKIE_SECURE 声明公网使用 HTTPS。
+    scheme = "https" if COOKIE_SECURE else request.url.scheme
+    expected = origin_key(f"{scheme}://{request.headers.get('host', '')}")
+    # 不直接信任客户端可伪造的 X-Forwarded-Host。
+    return expected is not None and origin == expected
+
+
 @app.middleware("http")
 async def protect_requests(request: Request, call_next):
     # 防止其他网站利用浏览器 Cookie 发起登录或退出请求。
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
-        if request.headers.get("origin") not in ALLOWED_ORIGINS:
+        if not permitted_origin(request):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "请求来源未获允许"}, status_code=403)
     response = await call_next(request)

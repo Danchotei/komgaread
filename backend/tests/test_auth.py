@@ -50,6 +50,38 @@ def test_origin_and_validation():
     assert client.post("/api/auth/login", json={"username": "", "password": ""}, headers=ORIGIN).status_code == 422
 
 
+@pytest.mark.parametrize("host,origin,secure,expected", [
+    ("192.168.0.209:8777", "http://192.168.0.209:8777", False, 422),
+    ("reader.example", "https://reader.example", True, 422),
+    ("another.example", "https://another.example", True, 422),
+    ("reader.example:443", "https://reader.example", True, 422),
+    ("[::1]:8777", "http://[::1]:8777", False, 422),
+    ("reader.example", "https://other.example", True, 403),
+    ("reader.example:8777", "http://reader.example:8778", False, 403),
+    ("reader.example", "http://reader.example", True, 403),
+    ("reader.example", "null", False, 403),
+    ("reader.example", "http://reader.example/path", False, 403),
+    ("reader.example", "http://user@reader.example", False, 403),
+    ("reader.example", "http://reader.example:bad", False, 403),
+])
+def test_dynamic_same_origin(monkeypatch, host, origin, secure, expected):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", set())
+    monkeypatch.setattr(main, "COOKIE_SECURE", secure)
+    response = TestClient(main.app).post("/api/auth/login", json={"username": "", "password": ""},
+                                         headers={"Host": host, "Origin": origin})
+    # 422 表明来源校验已通过，之后才被空账号的输入校验拦截；无需真实密码或 Komga。
+    assert response.status_code == expected
+
+
+def test_missing_origin_and_spoofed_forwarded_host(monkeypatch):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", set())
+    client = TestClient(main.app)
+    assert client.post("/api/auth/login", json={}).status_code == 403
+    assert client.post("/api/auth/login", json={}, headers={
+        "Origin": "http://evil.example", "X-Forwarded-Host": "evil.example",
+    }).status_code == 403
+
+
 def test_expired_session():
     main.sessions["expired"] = ("token", 0)
     client = TestClient(main.app)
