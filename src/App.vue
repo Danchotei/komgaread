@@ -36,6 +36,6 @@ async function logout() {
 
 <template>
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
-  <HomeView v-else-if="user" :user="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
+  <HomeView v-else-if="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
   <LoginView v-else @authenticated="user = $event" />
 </template>

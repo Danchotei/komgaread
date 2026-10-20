@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { User } from '../api/auth'
 
-defineProps<{ user: User; loggingOut: boolean; logoutMessage: string }>()
+defineProps<{ loggingOut: boolean; logoutMessage: string }>()
 defineEmits<{ logout: [] }>()
 
 interface Series {
@@ -46,17 +45,11 @@ onMounted(loadRecommendations)
       <button class="text-button" :disabled="loggingOut" @click="$emit('logout')">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
     </header>
     <main>
-      <div class="home-welcome">
-        <p class="eyebrow">BJB的收藏库</p>
-        <h1>今天，读点什么？</h1>
-        <p class="intro account-email">欢迎回来，{{ user.email }}</p>
-      </div>
       <p v-if="logoutMessage" role="alert">{{ logoutMessage }}</p>
       <section aria-labelledby="recommendations-title" :aria-busy="loading">
         <div class="section-heading">
           <div>
             <h2 id="recommendations-title">随机推荐</h2>
-            <p>从你的书库里，发现下一个故事。</p>
           </div>
           <button class="text-button refresh-button" :disabled="loading" @click="loadRecommendations">{{ loading ? '加载中…' : '换一批' }}</button>
         </div>
