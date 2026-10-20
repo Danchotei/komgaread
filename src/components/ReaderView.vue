@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { getJson, saveProgress } from '../api/library'
 const props = defineProps<{ bookId: string }>()
 interface Book { title: string; seriesId: string; pagesCount: number; readProgress: { page: number; completed: boolean } | null }
@@ -35,6 +35,9 @@ let saveVersion = 0
 let displayedPage = 0
 let lastQueuedPage = 0
 let disposed = false
+let active = true
+onActivated(() => { active = true; onScroll() })
+onDeactivated(() => { active = false; clearTimeout(saveTimer); cancelAnimationFrame(frame); frame = 0; persistPage() })
 
 function persistPage(force = false) {
   if (!displayedPage || (!force && displayedPage === lastQueuedPage)) return
@@ -56,6 +59,7 @@ function persistPage(force = false) {
 }
 function updateVisiblePage() {
   frame = 0
+  if (!active) return
   const line = Math.min(window.innerHeight * 0.35, 240)
   const candidates = [...visible.entries()].filter(([number]) => loaded.value.has(number))
   const current = candidates.find(([, element]) => {
@@ -70,7 +74,7 @@ function updateVisiblePage() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => persistPage(), 400)
 }
-function onScroll() { if (!frame) frame = requestAnimationFrame(updateVisiblePage) }
+function onScroll() { if (active && !frame) frame = requestAnimationFrame(updateVisiblePage) }
 function imageLoaded(number: number) { loaded.value.add(number); onScroll() }
 function retryImage(number: number) { failed.value.delete(number); retries.value[number] = (retries.value[number] || 0) + 1 }
 function jumpToPage() {
@@ -85,7 +89,7 @@ async function goBack() {
   persistPage()
   try {
     await latestSave
-    window.location.replace(book.value ? `#/series/${encodeURIComponent(book.value.seriesId)}` : '#/')
+    window.dispatchEvent(new Event('app-back'))
   } catch {
     saveError.value = true
     saveMessage.value = '进度未保存，请重试；也可以使用浏览器返回离开'

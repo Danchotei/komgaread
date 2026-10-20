@@ -1,64 +1,89 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import LoginView from './components/LoginView.vue'
-import HomeView from './components/HomeView.vue'
-import SeriesView from './components/SeriesView.vue'
-import ReaderView from './components/ReaderView.vue'
 import BottomNav from './components/BottomNav.vue'
-import SearchView from './components/SearchView.vue'
-import CategoriesView from './components/CategoriesView.vue'
-import AppHeader from './components/AppHeader.vue'
+import PageView from './components/PageView.vue'
 import { authRequest, type User } from './api/auth'
 import { resetSearchState } from './searchState'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
 const mainTabs = ['#/', '#/categories', '#/me']
-const seriesParents = [...mainTabs, '#/search']
-// 返回由页面层级决定，不再把浏览器历史中的阅读页当作系列的父页面。
-// 0：主导航页面；1：搜索；2：系列详情；3：阅读器。
+
+// 层级只选择动画方向；返回目标由下面的站内页面栈决定。
 function pageLevel(value: string) {
   if (value.startsWith('#/books/')) return 3
   if (value.startsWith('#/series/')) return 2
   if (value === '#/search') return 1
   return 0
 }
-let parentTab = '#/'
-try {
-  const saved = sessionStorage.getItem('komgaread-parent-tab')
-  if (saved && seriesParents.includes(saved)) parentTab = saved
-} catch { /* 存储不可用时回到主页。 */ }
-function rememberTab(value: string) {
-  if (!seriesParents.includes(value)) return
-  parentTab = value
-  try { sessionStorage.setItem('komgaread-parent-tab', value) } catch { /* 保留内存中的值。 */ }
+let nextKey = 1
+const generation = ref(0)
+const pages = ref([{ key: nextKey++, hash: hash.value || '#/', scrollY: 0 }])
+const currentPage = computed(() => pages.value[pages.value.length - 1]!)
+let backRequested = false
+let rootRequested = false
+let transitioning = false
+function recordScroll() {
+  if (!transitioning && window.location.hash === hash.value) currentPage.value.scrollY = window.scrollY
 }
-rememberTab(hash.value || '#/')
-function goBackFromSeries() {
-  window.location.replace(parentTab)
+function restoreScroll() {
+  window.scrollTo({ top: currentPage.value.scrollY, behavior: 'instant' })
+  transitioning = false
 }
+function goBack() {
+  recordScroll()
+  if (pages.value.length > 1) {
+    backRequested = true
+    window.location.hash = pages.value[pages.value.length - 2]!.hash
+  } else navigateRoot('#/')
+}
+function navigateRoot(target: string) {
+  resetSearchState()
+  rootRequested = true
+  if (target === hash.value) updateRoute()
+  else window.location.hash = target
+}
+window.addEventListener('scroll', recordScroll, { passive: true })
+window.addEventListener('app-back', goBack)
 function tabIndex(value: string) {
   return mainTabs.indexOf(value || '#/')
 }
 function updateRoute() {
+  transitioning = true
+  const target = window.location.hash || '#/'
+  if (rootRequested) {
+    generation.value++
+    pages.value = [{ key: nextKey++, hash: target, scrollY: 0 }]
+  }
+  else if (backRequested) pages.value.pop()
+  else {
+    pages.value.push({ key: nextKey++, hash: target, scrollY: 0 })
+  }
+  rootRequested = false
+  backRequested = false
   const fromLevel = pageLevel(hash.value)
-  const toLevel = pageLevel(window.location.hash)
+  const toLevel = pageLevel(target)
   const from = tabIndex(hash.value)
-  const to = tabIndex(window.location.hash)
+  const to = tabIndex(target)
   // 索引增大：向左滑动；索引减小：向右滑动。
   tabTransition.value = from >= 0 && to >= 0 && from !== to
     ? (to > from ? 'tab-slide-left' : 'tab-slide-right')
     : 'page-static'
   if (fromLevel > toLevel) tabTransition.value = 'series-back'
   else if (fromLevel < toLevel) tabTransition.value = 'series-slide'
-  if (window.location.hash === '#/search' && fromLevel === 0) tabTransition.value = 'search-down'
+  if (target === '#/search' && fromLevel === 0) tabTransition.value = 'search-down'
   if (hash.value === '#/search' && toLevel === 0) tabTransition.value = 'search-up'
-  rememberTab(window.location.hash)
-  hash.value = window.location.hash
-  window.scrollTo(0, 0)
+
+  hash.value = target
+  void nextTick(restoreScroll)
 }
 window.addEventListener('hashchange', updateRoute)
-onUnmounted(() => window.removeEventListener('hashchange', updateRoute))
+onUnmounted(() => {
+  window.removeEventListener('scroll', recordScroll)
+  window.removeEventListener('app-back', goBack)
+  window.removeEventListener('hashchange', updateRoute)
+})
 const route = computed(() => {
   const match = hash.value.match(/^#\/(series|books)\/([^/]+)$/)
   try { return match ? { type: match[1], id: decodeURIComponent(match[2]!) } : null }
@@ -82,7 +107,8 @@ function handleLogin(authenticatedUser: User) {
   window.history.replaceState(null, '', '#/')
   hash.value = '#/'
   tabTransition.value = 'page-static'
-  rememberTab('#/')
+  generation.value++
+  pages.value = [{ key: nextKey++, hash: '#/', scrollY: 0 }]
   window.scrollTo(0, 0)
   user.value = authenticatedUser
 }
@@ -116,23 +142,13 @@ async function logout() {
 
 <template>
   <div class="page-stage">
-    <Transition :name="transitionName">
-  <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
-  <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" @back="goBackFromSeries" />
-  <ReaderView v-else-if="user && route?.type === 'books'" :key="route.id" :book-id="route.id" />
-  <SearchView v-else-if="user && hash === '#/search'" />
-  <CategoriesView v-else-if="user && activeTab === 'categories'" />
-  <main v-else-if="user && activeTab === 'me'" :key="activeTab" class="tab-page">
-    <AppHeader title="个人" />
-    <h1 class="tab-title">我</h1>
-
-    <p class="account-email">{{ user.email }}</p>
-    <button class="text-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
-    <p v-if="message" role="alert">{{ message }}</p>
-  </main>
-  <HomeView v-else-if="user" />
-  <LoginView v-else @authenticated="handleLogin" />
+    <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
+    <Transition v-else-if="user" :name="transitionName" @after-enter="restoreScroll">
+      <KeepAlive :key="generation">
+        <PageView :key="currentPage.key" :page-hash="currentPage.hash" :user="user" :logging-out="loggingOut" :message="message" :can-back="pages.length > 1" @back="goBack" @logout="logout" />
+      </KeepAlive>
     </Transition>
+    <LoginView v-else @authenticated="handleLogin" />
   </div>
-  <BottomNav v-if="user && !checking && !route" :active="hash === '#/search' ? undefined : activeTab" />
+  <BottomNav v-if="user && !checking && !route" :active="hash === '#/search' ? undefined : activeTab" @navigate="navigateRoot" />
 </template>

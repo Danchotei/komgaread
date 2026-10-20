@@ -1,18 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
-import { searchState } from '../searchState'
+import { nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref } from 'vue'
+import { searchState, type SearchSeries } from '../searchState'
 import AppHeader from './AppHeader.vue'
-interface Series { id: string; title: string; booksCount: number; thumbnailUrl: string; lastReleaseDate?: string | null; genres?: string[] }
 const order = ref<'asc' | 'desc'>('desc')
 const keyword = ref('')
-const sourceSeries = ref<{ id: string; scrollY: number } | null>(null)
-function returnToSeries() {
-  if (!sourceSeries.value) return
-  searchState.returnPosition = { ...sourceSeries.value }
-  window.location.replace(`#/series/${encodeURIComponent(sourceSeries.value.id)}`)
-}
-
-const results = ref<Series[]>([])
+defineProps<{ canBack?: boolean }>()
+defineEmits<{ back: [] }>()
+const results = ref<SearchSeries[]>([])
 const total = ref(0)
 const last = ref(true)
 const loading = ref(false)
@@ -30,9 +24,20 @@ let version = 0
 let scrollPosition = 0
 const scrollContainer = ref<HTMLElement | null>(null)
 let disposed = false
+let active = true
+let activatedOnce = false
+onActivated(async () => {
+  active = true
+  if (activatedOnce) {
+    await nextTick()
+    if (scrollContainer.value) scrollContainer.value.scrollTop = scrollPosition
+  }
+  activatedOnce = true
+})
+onDeactivated(() => { active = false })
 function loadNearBottom() {
   const container = scrollContainer.value
-  if (disposed || !container || loading.value || error.value || !results.value.length || last.value) return
+  if (disposed || !active || !container || loading.value || error.value || !results.value.length || last.value) return
   if (container.scrollHeight - container.scrollTop - container.clientHeight < 320) void search(true)
 }
 function handleScroll() {
@@ -40,7 +45,7 @@ function handleScroll() {
   loadNearBottom()
 }
 function rememberScroll() {
-  if (scrollContainer.value) {
+  if (active && scrollContainer.value) {
     scrollPosition = scrollContainer.value.scrollTop
     awayFromTop.value = scrollPosition > 32
   }
@@ -49,7 +54,6 @@ onMounted(async () => {
   const saved = searchState.snapshot
   if (saved) {
     keyword.value = saved.keyword
-    sourceSeries.value = saved.sourceSeries || null
     submitted = saved.submitted
     filterType = saved.filterType || 'all'
     exact = saved.exact || false
@@ -69,14 +73,8 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => {
   disposed = true
-  rememberScroll()
-  searchState.snapshot = {
-    keyword: keyword.value, submitted, order: order.value,
-    results: [...results.value], total: total.value, last: last.value,
-    searched: searched.value, page, scrollY: scrollPosition,
-    filterType: filterType as 'all' | 'author' | 'genre' | 'tag', exact,
-    sourceSeries: sourceSeries.value || undefined,
-  }
+  version++
+  controller?.abort()
 })
 async function search(more = false, resort = false, manual = false) {
   if (!more && !resort && !keyword.value.trim()) return
@@ -125,16 +123,14 @@ async function toggleOrder() {
   await nextTick()
   if (scrollContainer.value) scrollContainer.value.scrollTop = top
 }
-onUnmounted(() => { version++; controller?.abort() })
 </script>
 
 <template>
   <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="handleScroll">
     <AppHeader title="搜索" />
-    <button v-if="sourceSeries" class="text-button return-series" @click="returnToSeries">← 返回系列</button>
+    <button v-if="canBack" class="text-button return-series" @click="$emit('back')">← 返回</button>
     <form class="search-form" @submit.prevent="search(false, false, true)">
       <div class="search-input-row"><input v-model="keyword" aria-label="搜索关键词" placeholder="搜索标题、作者、分类或标签" maxlength="200" required /><button class="text-button" type="submit">搜索</button></div>
-
     </form>
     <p v-if="error" class="form-message" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">正在搜索…</p>
