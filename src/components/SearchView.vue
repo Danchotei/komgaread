@@ -30,7 +30,9 @@ onActivated(async () => {
   active = true
   if (activatedOnce) {
     await nextTick()
-    if (scrollContainer.value) scrollContainer.value.scrollTop = scrollPosition
+    if (scrollContainer.value && Math.abs(scrollContainer.value.scrollTop - scrollPosition) > 1) {
+      scrollContainer.value.scrollTop = scrollPosition
+    }
   }
   activatedOnce = true
 })

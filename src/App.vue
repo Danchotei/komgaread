@@ -59,7 +59,9 @@ function recordScroll() {
   if (!transitioning && window.location.hash === hash.value) currentPage.value.scrollY = window.scrollY
 }
 function restoreScroll() {
-  window.scrollTo({ top: currentPage.value.scrollY, behavior: 'instant' })
+  if (Math.abs(window.scrollY - currentPage.value.scrollY) > 1) {
+    window.scrollTo({ top: currentPage.value.scrollY, behavior: 'instant' })
+  }
   transitioning = false
 }
 function goBack() {
@@ -123,7 +125,8 @@ function updateRoute() {
   if (browserNavigation) tabTransition.value = 'page-static'
 
   hash.value = target
-  markHistory()
+  // 已恢复的历史条目已有标识，不再 replaceState，减少 WebKit 快照交接干扰。
+  if (!restoredPages) markHistory()
   void nextTick(restoreScroll)
 }
 function handlePopState(event: PopStateEvent) {
