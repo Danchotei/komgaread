@@ -4,10 +4,24 @@ import LoginView from './components/LoginView.vue'
 import HomeView from './components/HomeView.vue'
 import SeriesView from './components/SeriesView.vue'
 import ReaderView from './components/ReaderView.vue'
+import BottomNav from './components/BottomNav.vue'
 import { authRequest, type User } from './api/auth'
 
 const hash = ref(window.location.hash)
-function updateRoute() { hash.value = window.location.hash; window.scrollTo(0, 0) }
+const tabTransition = ref('page-static')
+function tabIndex(value: string) {
+  return ['#/', '#/categories', '#/me'].indexOf(value || '#/')
+}
+function updateRoute() {
+  const from = tabIndex(hash.value)
+  const to = tabIndex(window.location.hash)
+  // 索引增大：向左滑动；索引减小：向右滑动。
+  tabTransition.value = from >= 0 && to >= 0 && from !== to
+    ? (to > from ? 'tab-slide-left' : 'tab-slide-right')
+    : 'page-static'
+  hash.value = window.location.hash
+  window.scrollTo(0, 0)
+}
 window.addEventListener('hashchange', updateRoute)
 onUnmounted(() => window.removeEventListener('hashchange', updateRoute))
 const route = computed(() => {
@@ -15,6 +29,7 @@ const route = computed(() => {
   try { return match ? { type: match[1], id: decodeURIComponent(match[2]!) } : null }
   catch { return null }
 })
+const activeTab = computed(() => hash.value === '#/categories' ? 'categories' : hash.value === '#/me' ? 'me' : 'home')
 const user = ref<User | null>(null)
 const checking = ref(true)
 const loggingOut = ref(false)
@@ -46,11 +61,23 @@ async function logout() {
 </script>
 
 <template>
-  <Transition :name="route?.type === 'series' && user && !checking ? 'series-slide' : 'page-static'">
+  <div class="page-stage">
+  <Transition :name="user && !checking ? (route?.type === 'series' ? 'series-slide' : tabTransition) : 'page-static'">
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
   <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" />
   <ReaderView v-else-if="user && route?.type === 'books'" :key="route.id" :book-id="route.id" />
+  <main v-else-if="user && activeTab !== 'home'" :key="activeTab" class="tab-page">
+    <h1>{{ activeTab === 'categories' ? '分类' : '我' }}</h1>
+    <p v-if="activeTab === 'categories'" class="intro">分类功能即将加入。</p>
+    <template v-else>
+      <p class="account-email">{{ user.email }}</p>
+      <button class="text-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
+      <p v-if="message" role="alert">{{ message }}</p>
+    </template>
+  </main>
   <HomeView v-else-if="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
   <LoginView v-else @authenticated="user = $event" />
   </Transition>
+  </div>
+  <BottomNav v-if="user && !checking && !route" :active="activeTab" />
 </template>

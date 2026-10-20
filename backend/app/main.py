@@ -120,8 +120,7 @@ async def logout(request: Request):
     return response
 
 # 随机抽取索引，再只读取对应系列，不将整个书库下载到网站。
-@app.get("/api/series/recommendations")
-async def recommendations(request: Request):
+async def select_recommendations(request: Request):
     import asyncio
     from random import sample
     from urllib.parse import quote
@@ -167,6 +166,30 @@ async def recommendations(request: Request):
         raise HTTPException(502, "Komga 系列信息格式不正确") from None
     return result
 
+
+@app.get("/api/series/recommendations")
+async def recommendations(request: Request):
+    from . import daily
+    from urllib.parse import quote
+    token = current_token(request)
+    headers = {"X-Auth-Token": token}
+    user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
+    async with daily.lock:
+        day = daily.china_day()
+        items = daily.read(user["id"], day)
+        if items is None:
+            items = await select_recommendations(request)
+            daily.write(user["id"], day, items)
+    # 每次仍检查权限，避免已删除或被撤销权限的系列继续展示。
+    visible = []
+    for item in items:
+        try:
+            await komga_request("GET", f"/api/v1/series/{quote(item['id'], safe='')}", headers=headers)
+            visible.append(item)
+        except HTTPException as exc:
+            if exc.status_code not in {403, 404}:
+                raise
+    return visible
 
 @app.get("/api/series/{series_id}/thumbnail")
 async def series_thumbnail(series_id: str, request: Request):
@@ -220,23 +243,37 @@ async def series_details(series_id: str, request: Request):
     from urllib.parse import quote
     data = read_json(await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
     metadata = data.get("metadata", {})
-    return {"id": data["id"], "title": metadata.get("title") or data.get("name"), "summary": metadata.get("summary") or "", "booksCount": data.get("booksCount", 0), "publisher": metadata.get("publisher") or "", "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail"}
+    book_metadata = data.get("booksMetadata") or {}
+    contributors = book_metadata.get("authors") or []
+    # 优先显示编剧／作者，缺少此角色时再显示其他贡献者。
+    writers = [author for author in contributors if author.get("role", "").lower() == "writer"]
+    authors = list(dict.fromkeys(author["name"] for author in (writers or contributors) if author.get("name")))
+    tags = sorted(set((metadata.get("tags") or []) + (book_metadata.get("tags") or [])))
+    return {
+        "id": data["id"], "title": metadata.get("title") or data.get("name"),
+        "summary": metadata.get("summary") or book_metadata.get("summary") or "",
+        "booksCount": data.get("booksCount", 0), "publisher": metadata.get("publisher") or "",
+        "authors": authors, "genres": metadata.get("genres") or [], "tags": tags,
+        "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail",
+    }
 
 
 @app.get("/api/series/{series_id}/books")
-async def series_books(series_id: str, request: Request, page: int = 0):
+async def series_books(series_id: str, request: Request, page: int = 0, order: str = "asc"):
     from urllib.parse import quote
+    if order not in {"asc", "desc"}:
+        raise HTTPException(422, "排序方式必须为 asc 或 desc")
     if page < 0:
         raise HTTPException(422, "页码不能为负数")
-    data = read_json(await komga_request("POST", "/api/v1/books/list", headers={"X-Auth-Token": current_token(request)}, params={"page": page, "size": 48, "sort": "metadata.numberSort,asc"}, json={"condition": {"seriesId": {"operator": "is", "value": series_id}}}))
-    return {"items": [{"id": book["id"], "title": book.get("metadata", {}).get("title") or book.get("name") or "未命名书籍", "pagesCount": book.get("media", {}).get("pagesCount", 0), "thumbnailUrl": f"/api/books/{quote(book['id'], safe='')}/thumbnail"} for book in data["content"]], "last": data["last"]}
+    data = read_json(await komga_request("POST", "/api/v1/books/list", headers={"X-Auth-Token": current_token(request)}, params={"page": page, "size": 48, "sort": f"metadata.numberSort,{order}"}, json={"condition": {"seriesId": {"operator": "is", "value": series_id}}}))
+    return {"items": [{"id": book["id"], "title": book.get("metadata", {}).get("title") or book.get("name") or "未命名书籍", "pagesCount": book.get("media", {}).get("pagesCount", 0), "readProgress": book.get("readProgress"), "thumbnailUrl": f"/api/books/{quote(book['id'], safe='')}/thumbnail"} for book in data["content"]], "last": data["last"]}
 
 
 @app.get("/api/books/{book_id}")
 async def book_details(book_id: str, request: Request):
     from urllib.parse import quote
     data = read_json(await komga_request("GET", f"/api/v1/books/{quote(book_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
-    return {"id": data["id"], "seriesId": data["seriesId"], "title": data.get("metadata", {}).get("title") or data.get("name"), "pagesCount": data.get("media", {}).get("pagesCount", 0)}
+    return {"id": data["id"], "seriesId": data["seriesId"], "title": data.get("metadata", {}).get("title") or data.get("name"), "pagesCount": data.get("media", {}).get("pagesCount", 0), "readProgress": data.get("readProgress")}
 
 
 async def book_image(book_id: str, request: Request, suffix: str, params=None):
@@ -274,3 +311,23 @@ async def book_page(book_id: str, page_number: int, request: Request):
     if page_number < 1:
         raise HTTPException(422, "页码从 1 开始")
     return await book_image(book_id, request, f"pages/{page_number}", {"convert": "jpeg", "zero_based": "false"})
+
+
+class ProgressInput(BaseModel):
+    page: int = Field(ge=1, strict=True)
+
+
+@app.patch("/api/books/{book_id}/progress", status_code=204)
+async def save_book_progress(book_id: str, data: ProgressInput, request: Request):
+    from urllib.parse import quote
+    token = current_token(request)
+    path = f"/api/v1/books/{quote(book_id, safe='')}"
+    headers = {"X-Auth-Token": token}
+    book = read_json(await komga_request("GET", path, headers=headers))
+    total = book.get("media", {}).get("pagesCount", 0)
+    if data.page > total:
+        raise HTTPException(422, "页码超过书籍总页数")
+    # 已读完后回看前面的页面不撤销完成标记。
+    completed = bool((book.get("readProgress") or {}).get("completed")) or data.page == total
+    await komga_request("PATCH", f"{path}/read-progress", headers=headers, json={"page": data.page, "completed": completed})
+    return Response(status_code=204)

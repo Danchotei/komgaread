@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 
 defineProps<{ loggingOut: boolean; logoutMessage: string }>()
 defineEmits<{ logout: [] }>()
@@ -57,7 +57,33 @@ async function loadRecommendations() {
   }
 }
 
-onMounted(loadRecommendations)
+// UTC+8 无夏令时；按中国日期边界更新，休眠恢复时也检查是否跨日。
+const chinaDay = () => Math.floor((Date.now() + 8 * 3600000) / 86400000)
+let loadedDay = chinaDay()
+let midnightTimer: ReturnType<typeof setTimeout>
+function scheduleUpdate() {
+  const nextMidnight = (chinaDay() + 1) * 86400000 - 8 * 3600000
+  midnightTimer = setTimeout(() => {
+    loadedDay = chinaDay()
+    void loadRecommendations()
+    scheduleUpdate()
+  }, nextMidnight - Date.now() + 100)
+}
+function checkDay() {
+  if (!document.hidden && chinaDay() !== loadedDay) {
+    loadedDay = chinaDay()
+    void loadRecommendations()
+  }
+}
+onMounted(() => {
+  void loadRecommendations()
+  scheduleUpdate()
+  document.addEventListener('visibilitychange', checkDay)
+})
+onUnmounted(() => {
+  clearTimeout(midnightTimer)
+  document.removeEventListener('visibilitychange', checkDay)
+})
 onMounted(loadRecent)
 </script>
 
@@ -91,14 +117,14 @@ onMounted(loadRecent)
       <section aria-labelledby="recommendations-title" :aria-busy="loading">
         <div class="section-heading">
           <div>
-            <h2 id="recommendations-title">随机推荐</h2>
+            <h2 id="recommendations-title">每日推荐</h2>
           </div>
-          <button class="text-button refresh-button" :disabled="loading" @click="loadRecommendations">{{ loading ? '加载中…' : '换一批' }}</button>
+          <span class="daily-update-note">每日 00:00 更新 · 中国时间</span>
         </div>
-        <p v-if="error" class="form-message" role="alert">{{ error }}</p>
+        <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" :disabled="loading" @click="loadRecommendations">重试</button></p>
         <p v-if="loading && !series.length" class="empty-state" role="status">正在从书库挑选漫画…</p>
         <p v-else-if="!error && !series.length" class="empty-state">还没有可推荐的漫画，请检查 Komga 书库和账号权限。</p>
-        <div v-if="series.length" class="series-grid" tabindex="0" role="region" aria-label="随机推荐的系列，可左右滚动">
+        <div v-if="series.length" class="series-grid" tabindex="0" role="region" aria-label="每日推荐的系列，可左右滚动">
           <article v-for="item in series" :key="item.id" class="series-card">
             <a class="series-cover cover-link" :href="`#/series/${encodeURIComponent(item.id)}`" :aria-label="`查看 ${item.title}`">
               <img v-if="!failedCovers.has(item.id)" :src="item.thumbnailUrl" :alt="item.title + '封面'" loading="lazy" @error="failedCovers.add(item.id)" />

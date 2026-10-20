@@ -39,7 +39,7 @@ function clearMessage() {
       </a>
 
       <section class="login-card" aria-labelledby="login-title">
-        <p class="eyebrow">BJB的收藏库</p>
+        <p class="eyebrow">神秘收藏库</p>
         <h1 id="login-title">欢迎回来</h1>
         <p class="intro">使用你的 Komga 账号登录</p>
 
@@ -89,7 +89,7 @@ function clearMessage() {
         <p class="account-help">账号由管理员创建。如需账号或重置密码，请联系管理员。</p>
       </section>
 
-      <p class="preview-note">连接你的私人漫画库</p>
+      <p class="preview-note">by B</p>
     </div>
   </main>
 </template>

@@ -5,11 +5,17 @@ from app import main
 
 
 @pytest.mark.parametrize("total", [0, 2, 4, 100])
-def test_random_recommendations(monkeypatch, total):
+def test_random_recommendations(monkeypatch, total, tmp_path):
+    from app import daily
+    monkeypatch.setattr(daily, "STORE", tmp_path / "daily.sqlite3")
     calls = []
 
     async def upstream(method, path, **kwargs):
         assert kwargs["headers"]["X-Auth-Token"] == "user-token"
+        if path == "/api/v2/users/me":
+            return httpx.Response(200, json={"id": "u1", "email": "u@example.com"})
+        if method == "GET":
+            return httpx.Response(200, json={"id": path.split("/")[-1]})
         assert method == "POST" and path == "/api/v1/series/list"
         page = kwargs["params"]["page"]
         calls.append(page)
@@ -28,6 +34,12 @@ def test_random_recommendations(monkeypatch, total):
     assert len({item["id"] for item in items}) == len(items)
     assert all(0 <= int(item["id"]) < total for item in items)
     assert len(calls) <= 5
+    previous_calls = len(calls)
+    assert client.get("/api/series/recommendations").json() == items
+    assert len(calls) == previous_calls
+    monkeypatch.setattr(daily, "china_day", lambda: "2099-01-01")
+    assert client.get("/api/series/recommendations").status_code == 200
+    assert len(calls) > previous_calls
     assert all(item["thumbnailUrl"].startswith("/api/series/") for item in items)
 
 
@@ -62,6 +74,10 @@ def test_bad_upstream_and_expired_session(monkeypatch):
 @pytest.mark.parametrize("total", [0, 2, 4])
 def test_recent_series_order_and_permissions(monkeypatch, total):
     async def upstream(method, path, **kwargs):
+        if path == "/api/v2/users/me":
+            return httpx.Response(200, json={"id": "u1", "email": "u@example.com"})
+        if method == "GET":
+            return httpx.Response(200, json={"id": path.split("/")[-1]})
         assert method == "POST" and path == "/api/v1/series/list"
         assert kwargs["headers"]["X-Auth-Token"] == "recent-token"
         assert kwargs["params"] == {"page": 0, "size": 4, "sort": "createdDate,desc"}

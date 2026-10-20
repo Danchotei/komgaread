@@ -54,3 +54,40 @@ def test_image_stream_auth_and_errors(client, monkeypatch, status, media, expect
         assert response.content == b"image-bytes"
         assert response.headers["content-type"] == "image/jpeg"
     assert client.get("/api/books/b1/pages/0").status_code == 422
+
+@pytest.mark.parametrize('order', ['asc', 'desc'])
+def test_book_sort_and_komga_progress(client, monkeypatch, order):
+    async def upstream(method, path, **kwargs):
+        assert kwargs['params']['sort'] == f'metadata.numberSort,{order}'
+        assert kwargs['headers']['X-Auth-Token'] == 'reader-token'
+        return httpx.Response(200, json={'content': [
+            {'id': 'unread', 'readProgress': None},
+            {'id': 'reading', 'readProgress': {'page': 12, 'completed': False}},
+            {'id': 'done', 'readProgress': {'page': 26, 'completed': True}},
+        ], 'last': True})
+    monkeypatch.setattr(main, 'komga_request', upstream)
+    response = client.get(f'/api/series/s1/books?order={order}')
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert items[0]['readProgress'] is None
+    assert items[1]['readProgress']['page'] == 12
+    assert items[2]['readProgress']['completed'] is True
+    assert client.get('/api/series/s1/books?order=invalid').status_code == 422
+
+@pytest.mark.parametrize('page,old_completed,expected', [(5, False, False), (10, False, True), (2, True, True)])
+def test_save_progress(client, monkeypatch, page, old_completed, expected):
+    calls = []
+    async def upstream(method, path, **kwargs):
+        assert kwargs['headers']['X-Auth-Token'] == 'reader-token'
+        if method == 'GET':
+            return httpx.Response(200, json={'media': {'pagesCount': 10}, 'readProgress': {'completed': old_completed}})
+        calls.append((path, kwargs['json']))
+        return httpx.Response(204)
+    monkeypatch.setattr(main, 'komga_request', upstream)
+    headers = {'Origin': 'http://127.0.0.1:5173'}
+    response = client.patch('/api/books/b1/progress', json={'page': page}, headers=headers)
+    assert response.status_code == 204
+    assert calls == [('/api/v1/books/b1/read-progress', {'page': page, 'completed': expected})]
+    for invalid in [0, -1, 11, 1.5, True]:
+        assert client.patch('/api/books/b1/progress', json={'page': invalid}, headers=headers).status_code == 422
+    assert TestClient(main.app).patch('/api/books/b1/progress', json={'page': 1}, headers=headers).status_code == 401
