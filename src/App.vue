@@ -7,6 +7,7 @@ import SetupView from './components/SetupView.vue'
 import { authRequest, type User } from './api/auth'
 import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
+import { navigateTo } from './navigation'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
@@ -76,7 +77,16 @@ function navigateRoot(target: string) {
   resetSearchState()
   rootRequested = true
   if (target === hash.value) updateRoute()
-  else window.location.hash = target
+  else navigateTo(target)
+}
+function handlePageLink(event: MouseEvent) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const link = event.target instanceof Element ? event.target.closest('a') : null
+  const target = link?.getAttribute('href')
+  if (!target?.startsWith('#/') || link?.hasAttribute('download') || (link?.target && link.target !== '_self')) return
+  event.preventDefault()
+  recordScroll()
+  navigateTo(target)
 }
 window.addEventListener('scroll', recordScroll, { passive: true })
 window.addEventListener('app-back', goBack)
@@ -147,11 +157,13 @@ function handlePopState(event: PopStateEvent) {
 }
 window.addEventListener('popstate', handlePopState)
 window.addEventListener('hashchange', updateRoute)
+window.addEventListener('app-navigate', updateRoute)
 onUnmounted(() => {
   window.history.scrollRestoration = previousScrollRestoration
   window.removeEventListener('scroll', recordScroll)
   window.removeEventListener('app-back', goBack)
   window.removeEventListener('hashchange', updateRoute)
+  window.removeEventListener('app-navigate', updateRoute)
   window.removeEventListener('popstate', handlePopState)
 })
 const route = computed(() => {
@@ -214,7 +226,7 @@ async function logout() {
 </script>
 
 <template>
-  <div ref="pageStage" class="page-stage" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }">
+  <div ref="pageStage" class="page-stage" :style="stageHeight === null ? undefined : { height: `${stageHeight}px`, overflow: 'clip' }" @click="handlePageLink">
     <main v-if="checking" class="login-page" role="status">正在检查服务状态…</main>
     <main v-else-if="startupError" class="login-page"><div class="login-container"><p class="form-message" role="alert">{{ startupError }}</p><button class="submit-button" @click="checkStartup">重试连接</button></div></main>
     <SetupView v-else-if="setupStatus && !setupStatus.configured" @configured="checkStartup" />

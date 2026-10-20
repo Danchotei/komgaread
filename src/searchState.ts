@@ -1,3 +1,5 @@
+import { navigateTo } from './navigation'
+
 /**
  * 搜索相关的跨页面内存状态。
  *
@@ -55,5 +57,5 @@ export function searchMetadata(keyword: string, filterType: 'author' | 'genre' |
     order: 'desc', results: [], total: 0, last: true,
     searched: false, page: 0, scrollY: 0,
   }
-  window.location.hash = '#/search'
+  navigateTo('#/search')
 }

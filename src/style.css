@@ -278,7 +278,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 
 .search-form { margin: 20px 0; }
 .return-series { margin-top: 16px; }
-/* 搜索页独立滚动，不受路由切换时 window.scrollTo(0, 0) 影响。 */
+/* 搜索页独立滚动，不受窗口滚动位置影响。 */
 .tab-page.search-page { height: 100dvh; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .search-input-row { display: flex; gap: 10px; }
 .search-input-row input { min-width: 0; flex: 1; }
