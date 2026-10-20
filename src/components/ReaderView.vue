@@ -85,7 +85,7 @@ async function goBack() {
   persistPage()
   try {
     await latestSave
-    window.location.hash = book.value ? `#/series/${encodeURIComponent(book.value.seriesId)}` : '#/'
+    window.location.replace(book.value ? `#/series/${encodeURIComponent(book.value.seriesId)}` : '#/')
   } catch {
     saveError.value = true
     saveMessage.value = '进度未保存，请重试；也可以使用浏览器返回离开'

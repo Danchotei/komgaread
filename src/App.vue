@@ -9,31 +9,41 @@ import { authRequest, type User } from './api/auth'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
-let historyIndex = Number(window.history.state?.komgaNavIndex) || 0
-window.history.replaceState({ ...window.history.state, komgaNavIndex: historyIndex }, '')
-let returningFromSeries = false
+// 返回由页面层级决定，不再把浏览器历史中的阅读页当作系列的父页面。
+// 0：主导航页面；1：系列详情；2：阅读器。
+function pageLevel(value: string) {
+  if (value.startsWith('#/books/')) return 2
+  if (value.startsWith('#/series/')) return 1
+  return 0
+}
+let parentTab = '#/'
+try {
+  const saved = sessionStorage.getItem('komgaread-parent-tab')
+  if (saved && ['#/', '#/categories', '#/me'].includes(saved)) parentTab = saved
+} catch { /* 存储不可用时回到主页。 */ }
+function rememberTab(value: string) {
+  if (!['#/', '#/categories', '#/me'].includes(value)) return
+  parentTab = value
+  try { sessionStorage.setItem('komgaread-parent-tab', value) } catch { /* 保留内存中的值。 */ }
+}
+rememberTab(hash.value || '#/')
 function goBackFromSeries() {
-  returningFromSeries = true
-  if (historyIndex > 0) window.history.back()
-  else window.location.hash = '#/'
+  window.location.replace(parentTab)
 }
 function tabIndex(value: string) {
   return ['#/', '#/categories', '#/me'].indexOf(value || '#/')
 }
 function updateRoute() {
-  const nextIndex = window.history.state?.komgaNavIndex
-  const goingBack = typeof nextIndex === 'number' && nextIndex < historyIndex
-  const leavingSeries = hash.value.startsWith('#/series/')
-  historyIndex = typeof nextIndex === 'number' ? nextIndex : historyIndex + 1
-  window.history.replaceState({ ...window.history.state, komgaNavIndex: historyIndex }, '')
+  const fromLevel = pageLevel(hash.value)
+  const toLevel = pageLevel(window.location.hash)
   const from = tabIndex(hash.value)
   const to = tabIndex(window.location.hash)
   // 索引增大：向左滑动；索引减小：向右滑动。
   tabTransition.value = from >= 0 && to >= 0 && from !== to
     ? (to > from ? 'tab-slide-left' : 'tab-slide-right')
     : 'page-static'
-  if (leavingSeries && (returningFromSeries || goingBack)) tabTransition.value = 'series-back'
-  returningFromSeries = false
+  if (fromLevel > toLevel) tabTransition.value = 'series-back'
+  rememberTab(window.location.hash)
   hash.value = window.location.hash
   window.scrollTo(0, 0)
 }
@@ -49,6 +59,16 @@ const user = ref<User | null>(null)
 const checking = ref(true)
 const loggingOut = ref(false)
 const message = ref('')
+
+function handleLogin(authenticatedUser: User) {
+  // 主动登录成功始终进入首页，不沿用登录前残留的详情／阅读地址。
+  window.history.replaceState(null, '', '#/')
+  hash.value = '#/'
+  tabTransition.value = 'page-static'
+  rememberTab('#/')
+  window.scrollTo(0, 0)
+  user.value = authenticatedUser
+}
 
 onMounted(async () => {
   try {
@@ -91,7 +111,7 @@ async function logout() {
     </template>
   </main>
   <HomeView v-else-if="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
-  <LoginView v-else @authenticated="user = $event" />
+  <LoginView v-else @authenticated="handleLogin" />
   </Transition>
   </div>
   <BottomNav v-if="user && !checking && !route" :active="activeTab" />
