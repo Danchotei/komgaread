@@ -1,23 +1,42 @@
 # KomgaRead
 
-基于 Vue 3、TypeScript 和 Vite 的手机端漫画阅读网页，按小步骤逐步实现。
+Vue 3 + TypeScript + Vite 前端，FastAPI 后端。按步骤学习并搭建手机端漫画阅读网站。
 
-## 当前范围
+## 已完成
 
-已完成前端项目初始化及手机端登录界面，支持必填检查、密码显示切换和提交提示。尚未接入后端，提交不会验证账号，也不会保存或发送密码。
+- 登录页：必填检查、显示密码、提交状态及错误提示。
+- 后端通过 Komga 验证账号，返回当前用户；刷新页面检查会话。
+- 简单的登录成功页面及退出登录。
+
+尚未实现漫画书架、阅读器及个人收藏。
 
 ## 环境
 
-- Node.js 24 LTS（项目通过 Node.js 24.19.0 验证）
-- npm（随 Node.js 提供）
-- Git
+- Node.js 24 LTS、npm、Git。
+- Python 3.12 或以上、uv（Python 依赖管理工具）。
 
-若 `node --version` 显示 v20.17.0，请先安装 Node.js 24 LTS，重新打开终端后再运行以下命令。
-官方下载：https://nodejs.org/
+Windows PowerShell 使用 npm.cmd，避免 npm.ps1 被执行策略阻止。
 
-## 本地运行
+## 启动后端
 
-在 PowerShell 中进入项目文件夹：
+在项目根目录执行：
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+首次配置时复制即可；已有 .env 时不要覆盖。编辑 backend/.env，将 KOMGA_URL 改成开发电脑能访问的 Komga 地址，可以包含反向代理的子路径。不要填账号或密码。
+
+```powershell
+uv sync --directory backend
+uv run --directory backend uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+后端接口文档：http://127.0.0.1:8000/docs 。登录和退出接口要求允许的 Origin，正常操作请使用前端页面。
+
+## 启动前端
+
+另开一个终端：
 
 ```powershell
 cd D:\manga\komgaread
@@ -25,64 +44,39 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-打开终端显示的本地地址，通常为 http://localhost:5173 。按 Ctrl+C 停止服务。
-修改页面并保存后，浏览器会自动更新。
+打开 http://127.0.0.1:5173 。两个终端都需要保持运行，Ctrl+C 停止对应服务。
+Vite 将 /api 请求转发给 127.0.0.1:8000，浏览器不需要直接跨域访问 Komga。
 
-## 文件结构与学习顺序
+## 本步代码与请求流程
 
-```text
-index.html          网页入口，包含挂载 Vue 的 app 容器
-src/main.ts         创建 Vue 应用，导入样式并挂载根组件
-src/App.vue         根组件，展示登录组件
-src/components/LoginView.vue 登录界面及表单交互
-src/style.css       全局样式和手机端布局
-vite.config.ts      Vite 配置，启用 Vue 文件支持
-tsconfig*.json      TypeScript 检查规则
-package.json        项目依赖和运行命令
-package-lock.json   锁定依赖版本，需提交到 Git
-```
+1. src/components/LoginView.vue：v-model 收集输入，提交时 await 登录请求，通过 emit 通知父组件。
+2. src/api/auth.ts：统一使用 fetch 请求本站接口及处理错误。
+3. src/App.vue：保存当前用户，决定显示登录页还是登录成功页面，刷新时请求 /me。
+4. backend/app/main.py：接收登录请求，通过 Basic Auth 请求 Komga /api/v2/users/me，取得用户及 Komga 会话。
+5. 后端仅在内存保存 Komga 会话。浏览器保存 HttpOnly 的本站会话 Cookie，不在 localStorage 存放密码或令牌。
+6. 退出时清除本站会话，并尝试撤销 Komga 会话。
 
-建议先从 App.vue 的文字入手，修改后观察页面变化，再阅读 style.css。
+前后端字段通过 User 类型及 LoginInput 对应。账号和密码只在用户提交时发送，后端不保存密码。
 
-## 构建与预览
+## 验证
 
 ```powershell
+uv run --directory backend python -m pytest -q
 npm.cmd run build
-npm.cmd run preview
 ```
 
-build 先执行 TypeScript 检查，再生成 dist 文件夹。preview 用来检查构建结果，不用于正式部署。
+自动化测试使用模拟 Komga，覆盖用户会话隔离、刷新检查、过期会话、来源检查、认证失败和退出。
+真实环境请在页面中验证：正确账号登录、刷新保持登录、退出、错误密码提示。开发者没有你的凭据，不会代替你执行真实账号登录。
 
-## GitHub
+## 当前限制
+
+学习阶段会话存储在单个后端进程中，8 小时后过期；后端重启或代码热重载需要重新登录。不要使用多个 worker。
+正式部署时还需配置 HTTPS、COOKIE_SECURE=true、ALLOWED_ORIGINS 为实际网页来源，以及反向代理 /api。当前 Vite 代理只用于开发。
+
+.env、.venv、node_modules、dist 均已忽略。VITE_ 变量会暴露给浏览器，不要用于保存秘密。
+
+## 后续
+
+读取书库 → 漫画详情和阅读器 → 同步阅读进度 → SQLite 个人收藏。
 
 仓库：https://github.com/Danchotei/komgaread
-
-后续每完成一步，可以检查改动后提交：
-
-```powershell
-git status
-git add .
-git commit -m "Describe the change"
-git push origin main
-```
-
-node_modules 和 dist 不上传，由依赖安装和构建命令重新生成。
-.env 文件已忽略；不要将 Komga 密码、API Key 或其他凭据提交到公开仓库。前端的 VITE_ 环境变量会被打包到浏览器，不能用于存放秘密。
-
-## 后续方向
-
-1. 编写登录界面。
-2. 新建 FastAPI 后端并连接 Komga。
-3. 读取书库和同步各用户的阅读进度。
-4. 加入 SQLite，保存个人收藏。
-
-## 第二步：理解登录表单
-
-- `ref` 定义会变化的数据，例如账号、密码和提示消息。
-- `v-model` 将输入框和数据关联起来；账号使用 `.trim` 去掉首尾空格，密码保持原样。
-- `:type` 根据状态切换密码框的显示方式。
-- `@click` 监听点击，`@submit.prevent` 处理提交并阻止浏览器刷新页面。
-- `required` 使用浏览器自带的必填验证。
-- `v-if` 让提交提示仅在有消息时出现。
-
-体验步骤：空表单提交会提示必填；输入任意测试账号和密码后可切换显示密码；提交后会明确提示尚未连接 Komga，不会跳转到书架。

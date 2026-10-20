@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { authRequest, type User } from '../api/auth'
+
+const emit = defineEmits<{ authenticated: [user: User] }>()
+const submitting = ref(false)
 
 // ref 保存会变化的数据；数据变化时，Vue 会更新对应的界面。
 const username = ref('')
@@ -7,11 +11,20 @@ const password = ref('')
 const showPassword = ref(false)
 const message = ref('')
 
-function handleSubmit() {
-  // 目前只演示表单交互，下一步在这里调用后端登录接口。
-  message.value = '表单填写完成。Komga 连接尚未配置，本次未进行登录。'
+async function handleSubmit() {
+  if (submitting.value) return
+  submitting.value = true
+  message.value = ''
+  try {
+    const user = await authRequest<User>('login', { username: username.value, password: password.value })
+    password.value = ''
+    emit('authenticated', user)
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '登录失败，请重试'
+  } finally {
+    submitting.value = false
+  }
 }
-
 function clearMessage() {
   message.value = ''
 }
@@ -26,9 +39,9 @@ function clearMessage() {
       </a>
 
       <section class="login-card" aria-labelledby="login-title">
-        <p class="eyebrow">你的私人漫画书架</p>
+        <p class="eyebrow">BJB的收藏库</p>
         <h1 id="login-title">欢迎回来</h1>
-        <p class="intro">使用你的 Komga 账号，继续阅读喜欢的故事。</p>
+        <p class="intro">使用你的 Komga 账号登录</p>
 
         <form @submit.prevent="handleSubmit" @input="clearMessage">
           <div class="field">
@@ -42,8 +55,8 @@ function clearMessage() {
               placeholder="输入 Komga 账号"
               required
               maxlength="254"
-              pattern=".*\S.*"
-              title="请输入账号，不能只有空格"
+              pattern="^\S+$"
+              title="请输入账号，不能含有空格"
             />
           </div>
 
@@ -69,14 +82,14 @@ function clearMessage() {
             </div>
           </div>
 
-          <button class="submit-button" type="submit">登录</button>
+          <button class="submit-button" type="submit" :disabled="submitting">{{ submitting ? '正在登录…' : '登录' }}</button>
           <p v-if="message" class="form-message" role="status">{{ message }}</p>
         </form>
 
         <p class="account-help">账号由管理员创建。如需账号或重置密码，请联系管理员。</p>
       </section>
 
-      <p class="preview-note">界面预览 · 尚未连接 Komga</p>
+      <p class="preview-note">连接你的私人漫画库</p>
     </div>
   </main>
 </template>

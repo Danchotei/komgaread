@@ -41,3 +41,6 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
   .login-card { padding: 28px 22px; }
   .brand { margin-bottom: 24px; }
 }
+
+.submit-button:disabled { opacity: .65; cursor: wait; }
+.account-email { overflow-wrap: anywhere; }
