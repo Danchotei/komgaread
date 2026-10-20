@@ -44,7 +44,8 @@ def test_login_isolation_refresh_and_logout(monkeypatch):
     assert b.get("/api/auth/me").status_code == 200
 
 
-def test_origin_and_validation():
+def test_origin_and_validation(monkeypatch):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://127.0.0.1:5173"})
     client = TestClient(main.app)
     assert client.post("/api/auth/login", json={"username": "a", "password": "b"}, headers={"Origin": "https://other.example"}).status_code == 403
     assert client.post("/api/auth/login", json={"username": "", "password": ""}, headers=ORIGIN).status_code == 422
@@ -56,21 +57,40 @@ def test_origin_and_validation():
     ("another.example", "https://another.example", True, 422),
     ("reader.example:443", "https://reader.example", True, 422),
     ("[::1]:8777", "http://[::1]:8777", False, 422),
-    ("reader.example", "https://other.example", True, 403),
-    ("reader.example:8777", "http://reader.example:8778", False, 403),
-    ("reader.example", "http://reader.example", True, 403),
+    ("reader.example", "https://other.example", True, 422),
+    ("reader.example:8777", "http://reader.example:8778", False, 422),
+    ("reader.example", "http://reader.example", True, 422),
     ("reader.example", "null", False, 403),
     ("reader.example", "http://reader.example/path", False, 403),
     ("reader.example", "http://user@reader.example", False, 403),
     ("reader.example", "http://reader.example:bad", False, 403),
 ])
-def test_dynamic_same_origin(monkeypatch, host, origin, secure, expected):
-    monkeypatch.setattr(main, "ALLOWED_ORIGINS", set())
+def test_cross_origin_policy(monkeypatch, host, origin, secure, expected):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"*"})
     monkeypatch.setattr(main, "COOKIE_SECURE", secure)
     response = TestClient(main.app).post("/api/auth/login", json={"username": "", "password": ""},
                                          headers={"Host": host, "Origin": origin})
     # 422 表明来源校验已通过，之后才被空账号的输入校验拦截；无需真实密码或 Komga。
     assert response.status_code == expected
+
+
+def test_cors_preflight_and_credentials(monkeypatch):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"*"})
+    client = TestClient(main.app)
+    origin = "https://public-reader.example"
+    preflight = client.options("/api/auth/login", headers={
+        "Origin": origin, "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type",
+    })
+    assert preflight.status_code == 200
+    for response in (preflight, client.get("/api/auth/me", headers={"Origin": origin})):
+        assert response.headers["Access-Control-Allow-Origin"] == origin
+        assert response.headers["Access-Control-Allow-Credentials"] == "true"
+        assert "Origin" in response.headers["Vary"]
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"https://only.example"})
+    rejected = client.options("/api/auth/login", headers={"Origin": origin, "Access-Control-Request-Method": "POST"})
+    assert rejected.status_code == 400
+    assert "Access-Control-Allow-Origin" not in rejected.headers
 
 
 def test_missing_origin_and_spoofed_forwarded_host(monkeypatch):

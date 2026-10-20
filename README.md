@@ -91,7 +91,7 @@ CSS 负责按窗口自动适配，不需要为不同手机部署多份网站。
 搜索页独立滚动；手机安全区域通过 viewport-fit=cover 和 env(safe-area-inset-*) 留白。
 
 正式部署时，将 dist 放入 NAS 的静态网站服务，并将同域名 /api 反向代理到 FastAPI。
-HTTPS 部署设置 COOKIE_SECURE=true；同源请求自动允许，反向代理需保留原始 Host（含端口）。ALLOWED_ORIGINS 仅用于额外来源。Vite 开发代理不会出现在正式构建中。
+HTTPS 部署设置 COOKIE_SECURE=true；ALLOWED_ORIGINS=* 默认允许任意 HTTP/HTTPS 来源并启用 CORS，也可配置明确的来源列表。Vite 开发代理不会出现在正式构建中。
 
 ## 数据与限制
 

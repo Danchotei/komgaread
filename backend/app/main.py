@@ -8,12 +8,13 @@ from contextlib import asynccontextmanager
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 KOMGA_URL = os.getenv("KOMGA_URL", "").rstrip("/")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
-ALLOWED_ORIGINS = {value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",") if value.strip()}
+ALLOWED_ORIGINS = {value.strip() for value in (os.getenv("ALLOWED_ORIGINS") or "*").split(",") if value.strip()}
 COOKIE_NAME = "komgaread_session"
 SESSION_SECONDS = 8 * 60 * 60
 
@@ -47,29 +48,35 @@ def origin_key(value: str):
         return None
 
 
-def permitted_origin(request: Request) -> bool:
-    origin = origin_key(request.headers.get("origin", ""))
+def allowed_origin(value: str) -> bool:
+    origin = origin_key(value)
     if origin is None:
         return False
-    if any(origin == origin_key(value) for value in ALLOWED_ORIGINS):
-        return True
-    # HTTPS 在 NAS 外层终止时，内部连接仍是 HTTP；COOKIE_SECURE 声明公网使用 HTTPS。
-    scheme = "https" if COOKIE_SECURE else request.url.scheme
-    expected = origin_key(f"{scheme}://{request.headers.get('host', '')}")
-    # 不直接信任客户端可伪造的 X-Forwarded-Host。
-    return expected is not None and origin == expected
+    return "*" in ALLOWED_ORIGINS or any(origin == origin_key(item) for item in ALLOWED_ORIGINS)
 
 
 @app.middleware("http")
 async def protect_requests(request: Request, call_next):
-    # 防止其他网站利用浏览器 Cookie 发起登录或退出请求。
+    # 来源策略与 CORS 保持一致；默认允许任意有效 HTTP(S) Origin。
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
-        if not permitted_origin(request):
+        if not allowed_origin(request.headers.get("origin", "")):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "请求来源未获允许"}, status_code=403)
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+class OriginCORSMiddleware(CORSMiddleware):
+    def is_allowed_origin(self, origin: str) -> bool:
+        return allowed_origin(origin)
+
+
+# 放在外层，使来源拒绝等错误响应也带有正确的 CORS 头。
+# 带凭据时返回具体 Origin，不使用 Access-Control-Allow-Origin: *。
+app.add_middleware(OriginCORSMiddleware, allow_credentials=True,
+                   allow_methods=["GET", "HEAD", "POST", "PATCH", "OPTIONS"],
+                   allow_headers=["Content-Type"])
 
 
 def komga_url():

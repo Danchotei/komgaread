@@ -40,9 +40,9 @@ Supervisor 负责进程重启和退出信号；健康检查同时检查前端和
 未初始化前重启会继续使用同一密钥，并在启动日志重新显示；初始化后不再输出。
 也可选择手动设置至少 16 位的 SETUP_KEY 覆盖自动密钥，无需同时使用两种方式。
 密钥不会通过公开接口返回或自动填入网页，不要把密钥文件或含密钥的日志公开。
-ALLOWED_ORIGINS 通常留空：后端按 Origin 的协议、域名、端口与请求入口自动校验同源。
-NAS 的每层反向代理都必须保留浏览器的原始 Host（含非默认端口），容器内 Nginx 已配置。
-仅刻意使用不同来源访问 API 时才填写额外白名单；多个来源以英文逗号分隔。
+ALLOWED_ORIGINS=* 默认允许任意有效 HTTP/HTTPS 来源，并支持 CORS 预检与凭据响应。
+不再比较 Origin 与内部 Host/协议，因此多层反向代理无需逐一添加域名。
+这会放宽跨站访问限制；如需限制来源，可填写明确的来源列表，多个来源以英文逗号分隔。
 
 ```sh
 docker compose pull
@@ -61,8 +61,8 @@ COOKIE_SECURE=true
 ```
 
 重新执行 docker compose up -d --no-build 使环境变量生效。
-COOKIE_SECURE=true 同时声明外部入口使用 HTTPS，即使 NAS 到容器之间使用 HTTP 也能校验。
-后端不会直接使用 X-Forwarded-Host 放行请求；外层反代须保留 Host。
+COOKIE_SECURE 只控制 Cookie 是否仅经 HTTPS 发送，不再参与来源校验。
+当前网页仍通过同域 /api 请求，Cookie 保持 SameSite=Lax；跨站 Cookie 仍受浏览器策略限制。
 
 ## 更新、回退与数据
 

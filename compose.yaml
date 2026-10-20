@@ -9,7 +9,7 @@ services:
     environment:
       KOMGA_URL: ${KOMGA_URL:-}
       SETUP_KEY: ${SETUP_KEY:-}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - manga-data:/data

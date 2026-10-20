@@ -54,6 +54,7 @@ def test_save_persist_and_close_setup(monkeypatch):
 
 
 def test_setup_key_and_origin_before_network(monkeypatch):
+    monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://127.0.0.1:5173"})
     def unexpected(request):
         pytest.fail("未授权请求不应访问上游")
     mock_network(monkeypatch, unexpected)
