@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
 import { searchState } from '../searchState'
 import AppHeader from './AppHeader.vue'
-interface Series { id: string; title: string; booksCount: number; thumbnailUrl: string; lastReleaseDate?: string | null }
+interface Series { id: string; title: string; booksCount: number; thumbnailUrl: string; lastReleaseDate?: string | null; genres?: string[] }
 const order = ref<'asc' | 'desc'>('desc')
 const keyword = ref('')
 const sourceSeries = ref<{ id: string; scrollY: number } | null>(null)
@@ -27,6 +27,16 @@ let controller: AbortController | undefined
 let version = 0
 let scrollPosition = 0
 const scrollContainer = ref<HTMLElement | null>(null)
+let disposed = false
+function loadNearBottom() {
+  const container = scrollContainer.value
+  if (disposed || !container || loading.value || error.value || !results.value.length || last.value) return
+  if (container.scrollHeight - container.scrollTop - container.clientHeight < 320) void search(true)
+}
+function handleScroll() {
+  rememberScroll()
+  loadNearBottom()
+}
 function rememberScroll() {
   if (scrollContainer.value) scrollPosition = scrollContainer.value.scrollTop
 }
@@ -51,6 +61,7 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
+  disposed = true
   rememberScroll()
   searchState.snapshot = {
     keyword: keyword.value, submitted, order: order.value,
@@ -89,7 +100,13 @@ async function search(more = false, resort = false, manual = false) {
     page++
   } catch (cause) {
     if (current === version && !(cause instanceof DOMException && cause.name === 'AbortError')) error.value = cause instanceof Error ? cause.message : '搜索失败，请重试'
-  } finally { if (current === version) loading.value = false }
+  } finally {
+    if (current === version) {
+      loading.value = false
+      await nextTick()
+      loadNearBottom()
+    }
+  }
 }
 async function toggleOrder() {
   if (loading.value) return
@@ -103,7 +120,7 @@ onUnmounted(() => { version++; controller?.abort() })
 </script>
 
 <template>
-  <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="rememberScroll">
+  <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="handleScroll">
     <AppHeader title="搜索" />
     <button v-if="sourceSeries" class="text-button return-series" @click="returnToSeries">← 返回系列</button>
     <form class="search-form" @submit.prevent="search(false, false, true)">
@@ -114,8 +131,12 @@ onUnmounted(() => { version++; controller?.abort() })
     <p v-if="loading" role="status">正在搜索…</p>
     <div v-if="searched" class="search-result-toolbar"><p class="search-count">{{ total ? `找到 ${total} 个系列` : loading ? '正在查询' : '没有找到相关系列' }}</p><button class="text-button" :disabled="loading" @click="toggleOrder">{{ order === 'desc' ? '从新到旧 ↓' : '从旧到新 ↑' }}</button></div>
     <div class="search-results">
-      <a v-for="item in results" :key="item.id" class="book-link" :href="`#/series/${encodeURIComponent(item.id)}`"><div class="series-cover"><img v-if="!failed.has(item.id)" :src="item.thumbnailUrl" :alt="item.title" loading="lazy" @error="failed.add(item.id)" /><span v-else>暂无封面</span></div><h3>{{ item.title }}</h3><p class="search-card-meta"><span>{{ item.booksCount }} 章</span><time v-if="item.lastReleaseDate" :datetime="item.lastReleaseDate" title="最后一章发行日期">{{ item.lastReleaseDate }}</time><span v-else>日期未知</span></p></a>
+      <a v-for="item in results" :key="item.id" class="book-link" :href="`#/series/${encodeURIComponent(item.id)}`"><div class="series-cover"><img v-if="!failed.has(item.id)" :src="item.thumbnailUrl" :alt="item.title" loading="lazy" @error="failed.add(item.id)" /><span v-else>暂无封面</span></div><h3>{{ item.title }}</h3><p class="search-card-genres" :title="item.genres?.join('、')">{{ item.genres?.join('、') || '暂无分类' }}</p><p class="search-card-meta"><span>{{ item.booksCount }} 章</span><time v-if="item.lastReleaseDate" :datetime="item.lastReleaseDate" title="最后一章发行日期">{{ item.lastReleaseDate }}</time><span v-else>日期未知</span></p></a>
     </div>
-    <button v-if="results.length && !last" class="text-button load-more" :disabled="loading" @click="search(true)">加载更多</button>
+    <div v-if="results.length" class="search-load-status" role="status">
+      <span v-if="loading">正在加载…</span>
+      <button v-else-if="error && !last" class="text-button" @click="search(true)">重试加载</button>
+      <span v-else-if="last">已显示全部结果</span>
+    </div>
   </main>
 </template>

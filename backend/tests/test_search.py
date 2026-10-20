@@ -133,6 +133,8 @@ def test_sort_last_chapter_release_date(monkeypatch, direction):
     assert ids == [str(i) for i in (range(25) if direction == 'asc' else range(24, -1, -1))] + ['25']
     assert first['last'] is False and second['last'] is True
     assert first['total'] == 26
+    assert len(first['items']) == 16
+    assert len(second['items']) == 10
     assert second['items'][-1]['lastReleaseDate'] is None
 
 @pytest.mark.parametrize('kind', ['author', 'genre', 'tag'])
@@ -142,8 +144,8 @@ def test_metadata_exact_match(monkeypatch, kind):
         if method == 'GET':
             values = [{'name': name, 'role': 'writer'} for name in ['学生', '学生会', '學生']] if kind == 'author' else ['学生', '学生会', '學生']
             return httpx.Response(200, json={'content': values})
-        expected = {'name': '学生', 'role': 'writer'} if kind == 'author' else '学生'
-        assert kwargs['json']['condition'] == {'anyOf': [{kind: {'operator': 'is', 'value': expected}}]}
+        expected = [{'name': name, 'role': 'writer'} if kind == 'author' else name for name in ['学生', '學生']]
+        assert kwargs['json']['condition'] == {'anyOf': [{kind: {'operator': 'is', 'value': value}} for value in expected]}
         return httpx.Response(200, json={'content': [], 'last': True, 'totalElements': 0})
     monkeypatch.setattr(main, 'komga_request', upstream)
     client = TestClient(main.app)

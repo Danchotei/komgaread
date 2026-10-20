@@ -25,7 +25,7 @@ def create_search_router(
         headers = {"X-Auth-Token": current_token(request)}
         keyword = q.strip()
         from .translate import keyword_variants
-        variants = [keyword] if exact else keyword_variants(keyword)
+        variants = keyword_variants(keyword)
         conditions = []
         if type in {"all", "title"}:
             conditions.extend({"title": {"operator": "contains", "value": value}} for value in variants)
@@ -48,7 +48,7 @@ def create_search_router(
                 raise match
             kind, values = match
             for value in values:
-                if exact and (value.get("name") if kind == "author" else value) != keyword:
+                if exact and (value.get("name") if kind == "author" else value) not in variants:
                     continue
                 if kind == "author":
                     value = {"name": value["name"], "role": value["role"]}
@@ -62,7 +62,7 @@ def create_search_router(
             return {"items": [], "last": True, "total": 0}
         # 合并条件后只查询一次系列，由 Komga 统一去重及分页。
         condition = conditions[0] if type == "title" and len(conditions) == 1 else {"anyOf": conditions}
-        params = {"page": page, "size": 24, "sort": "metadata.titleSort,asc"}
+        params = {"page": page, "size": 16, "sort": "metadata.titleSort,asc"}
         if order:
             params = {"unpaged": "true", "sort": "metadata.titleSort,asc"}
         data = read_json(await komga_request("POST", "/api/v1/series/list", headers=headers, params=params, json={"condition": condition}))
@@ -75,7 +75,7 @@ def create_search_router(
                 content = chapters["content"]
                 item["lastReleaseDate"] = (content[0].get("metadata", {}).get("releaseDate") if content else None)
                 return item
-            # 全部匹配系列先排序，再切分页，不能只对当前 24 项排序。
+            # 全部匹配系列先排序，再切分页，不能只对当前 16 项排序。
             checked = await asyncio.gather(*(last_release(item) for item in data["content"]), return_exceptions=True)
             for item in checked:
                 if isinstance(item, BaseException):
@@ -84,7 +84,7 @@ def create_search_router(
             unknown = [item for item in checked if not item["lastReleaseDate"]]
             known.sort(key=lambda item: item["lastReleaseDate"], reverse=order == "desc")
             ordered = known + unknown
-            data = {"content": ordered[page * 24:(page + 1) * 24], "totalElements": len(ordered), "last": (page + 1) * 24 >= len(ordered)}
-        return {"items": [{"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "booksCount": item.get("booksCount", 0), "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"} for item in data["content"]], "last": data["last"], "total": data["totalElements"]}
+            data = {"content": ordered[page * 16:(page + 1) * 16], "totalElements": len(ordered), "last": (page + 1) * 16 >= len(ordered)}
+        return {"items": [{"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "booksCount": item.get("booksCount", 0), "genres": item.get("metadata", {}).get("genres") or [], "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"} for item in data["content"]], "last": data["last"], "total": data["totalElements"]}
 
     return router

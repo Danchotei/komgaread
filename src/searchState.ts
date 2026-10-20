@@ -18,6 +18,7 @@ export interface SearchSeries {
   id: string
   title: string
   booksCount: number // 本项目中对应章节数量。
+  genres?: string[] // 系列分类，搜索卡片中以纯文本显示。
   thumbnailUrl: string
   lastReleaseDate?: string | null // 序号最后一章的发行日期，可能缺失。
 }
