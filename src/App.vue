@@ -8,6 +8,8 @@ import { authRequest, type User } from './api/auth'
 import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
 import { navigateTo } from './navigation'
+import NavigationDebug from './components/NavigationDebug.vue'
+import { navigationDebugEnabled, traceNavigation } from './navigationDebug'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
@@ -24,6 +26,7 @@ function lockStageHeight() {
   stageHeight.value = Math.max(pageStage.value?.scrollHeight || 0, window.innerHeight)
 }
 function finishTransition() {
+  traceNavigation('transition-finish', { animated: animatedNavigation })
   if (!animatedNavigation) return
   animatedNavigation = false
   stageHeight.value = null
@@ -60,6 +63,7 @@ function recordScroll() {
   if (!transitioning && window.location.hash === hash.value) currentPage.value.scrollY = window.scrollY
 }
 function restoreScroll() {
+  traceNavigation('restore-scroll', { targetY: currentPage.value.scrollY })
   if (Math.abs(window.scrollY - currentPage.value.scrollY) > 1) {
     window.scrollTo({ top: currentPage.value.scrollY, behavior: 'instant' })
   }
@@ -100,6 +104,7 @@ function updateRoute() {
   const restoredPages = historyTarget
   historyTarget = null
   const browserNavigation = restoredPages !== null && !backRequested
+  traceNavigation('route-start', { browserNavigation, buttonBack: backRequested, restored: restoredPages !== null })
   animatedNavigation = !browserNavigation
   if (animatedNavigation) lockStageHeight()
   else stageHeight.value = null
@@ -138,8 +143,15 @@ function updateRoute() {
   // 已恢复的历史条目已有标识，不再 replaceState，减少 WebKit 快照交接干扰。
   if (!restoredPages) markHistory()
   void nextTick(restoreScroll)
+  if (navigationDebugEnabled) {
+    void nextTick(() => {
+      traceNavigation('route-rendered', { animation: tabTransition.value, pageKey: currentPage.value.key })
+      requestAnimationFrame(() => traceNavigation('route-frame'))
+    })
+  }
 }
 function handlePopState(event: PopStateEvent) {
+  traceNavigation('popstate', { nativeTransition: (event as PopStateEvent & { hasUAVisualTransition?: boolean }).hasUAVisualTransition ?? null })
   const state = event.state?.komgaNavigation
   if (!state || !Array.isArray(state.keys)) return
   const restored = state.session === historySession
@@ -238,4 +250,5 @@ async function logout() {
     <LoginView v-else @authenticated="handleLogin" />
   </div>
   <BottomNav v-if="user && !checking && !startupError && !route" :active="hash === '#/search' ? undefined : activeTab" @navigate="navigateRoot" />
+  <NavigationDebug v-if="navigationDebugEnabled" />
 </template>

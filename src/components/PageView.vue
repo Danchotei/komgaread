@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onActivated, onDeactivated } from 'vue'
+import { traceNavigation } from '../navigationDebug'
 import HomeView from './HomeView.vue'
 import SearchView from './SearchView.vue'
 import SeriesView from './SeriesView.vue'
@@ -9,6 +10,10 @@ import AppHeader from './AppHeader.vue'
 import type { User } from '../api/auth'
 const props = defineProps<{ pageHash: string; user: User; loggingOut: boolean; message: string; canBack: boolean }>()
 const emit = defineEmits<{ back: []; logout: [] }>()
+const tracePage = () => ({ page: props.pageHash.split('/')[1] || 'home' })
+onMounted(() => traceNavigation('page-mounted', tracePage()))
+onActivated(() => traceNavigation('page-activated', tracePage()))
+onDeactivated(() => traceNavigation('page-deactivated', tracePage()))
 const route = computed(() => {
   const match = props.pageHash.match(/^#\/(series|books)\/([^/]+)$/)
   try { return match ? { type: match[1], id: decodeURIComponent(match[2]!) } : null } catch { return null }
