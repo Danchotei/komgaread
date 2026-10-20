@@ -33,6 +33,18 @@ function pageLevel(value: string) {
 let nextKey = 1
 const generation = ref(0)
 const pages = ref([{ key: nextKey++, hash: hash.value || '#/', scrollY: 0 }])
+type PageEntry = (typeof pages.value)[number]
+const historySession = `${Date.now()}-${Math.random()}`
+const savedPages = new Map<number, PageEntry>()
+let historyTarget: PageEntry[] | null = null
+function markHistory() {
+  for (const page of pages.value) savedPages.set(page.key, page)
+  // 只存页面标识，结果和滚动位置仍保留在站内内存中。
+  window.history.replaceState({ ...window.history.state, komgaNavigation: {
+    session: historySession, keys: pages.value.map(page => page.key),
+  } }, '')
+}
+markHistory()
 const currentPage = computed(() => pages.value[pages.value.length - 1]!)
 let backRequested = false
 let rootRequested = false
@@ -45,10 +57,11 @@ function restoreScroll() {
   transitioning = false
 }
 function goBack() {
+  if (backRequested) return
   recordScroll()
   if (pages.value.length > 1) {
     backRequested = true
-    window.location.hash = pages.value[pages.value.length - 2]!.hash
+    window.history.back()
   } else navigateRoot('#/')
 }
 function navigateRoot(target: string) {
@@ -63,15 +76,21 @@ function tabIndex(value: string) {
   return mainTabs.indexOf(value || '#/')
 }
 function updateRoute() {
+  const target = window.location.hash || '#/'
+  // 浏览器后退会先触发 popstate，再触发 hashchange；同一次导航只处理一次。
+  if (target === (hash.value || '#/') && !rootRequested && !historyTarget) return
+  const restoredPages = historyTarget
+  historyTarget = null
+  const browserNavigation = restoredPages !== null && !backRequested
   lockStageHeight()
   transitioning = true
-  const target = window.location.hash || '#/'
-  const returning = backRequested
+  const returning = backRequested || (restoredPages !== null && restoredPages.length < pages.value.length)
   if (rootRequested) {
     generation.value++
+    savedPages.clear()
     pages.value = [{ key: nextKey++, hash: target, scrollY: 0 }]
   }
-  else if (backRequested) pages.value.pop()
+  else if (restoredPages) pages.value = restoredPages
   else {
     pages.value.push({ key: nextKey++, hash: target, scrollY: 0 })
   }
@@ -92,15 +111,36 @@ function updateRoute() {
   if (target === '#/search') tabTransition.value = 'card-open'
   if (hash.value.startsWith('#/series/') && returning) tabTransition.value = 'card-close'
   if (hash.value === '#/search' && (toLevel === 0 || returning)) tabTransition.value = 'card-close'
+  // 系统返回手势／浏览器前后退已有原生过渡，不叠加网页动画。
+  if (browserNavigation) tabTransition.value = 'page-static'
 
   hash.value = target
+  markHistory()
   void nextTick(restoreScroll)
 }
+function handlePopState(event: PopStateEvent) {
+  const state = event.state?.komgaNavigation
+  if (!state || !Array.isArray(state.keys)) return
+  const restored = state.session === historySession
+    ? state.keys.map((key: number) => savedPages.get(key))
+    : []
+  if (restored.length && restored.every((page: PageEntry | undefined) => page)) {
+    historyTarget = restored as PageEntry[]
+  } else {
+    // 底部导航或刷新已清除缓存时，仅打开目标页，不恢复过期的页面栈。
+    generation.value++
+    savedPages.clear()
+    historyTarget = [{ key: nextKey++, hash: window.location.hash || '#/', scrollY: 0 }]
+  }
+  updateRoute()
+}
+window.addEventListener('popstate', handlePopState)
 window.addEventListener('hashchange', updateRoute)
 onUnmounted(() => {
   window.removeEventListener('scroll', recordScroll)
   window.removeEventListener('app-back', goBack)
   window.removeEventListener('hashchange', updateRoute)
+  window.removeEventListener('popstate', handlePopState)
 })
 const route = computed(() => {
   const match = hash.value.match(/^#\/(series|books)\/([^/]+)$/)
@@ -123,6 +163,8 @@ function handleLogin(authenticatedUser: User) {
   tabTransition.value = 'page-static'
   generation.value++
   pages.value = [{ key: nextKey++, hash: '#/', scrollY: 0 }]
+  savedPages.clear()
+  markHistory()
   window.scrollTo(0, 0)
   user.value = authenticatedUser
 }
