@@ -45,33 +45,37 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .submit-button:disabled { opacity: .65; cursor: wait; }
 .account-email { overflow-wrap: anywhere; }
 
-/* 首页：手机两列，较宽的屏幕四列。 */
-.home-page { max-width: 1040px; margin: 0 auto; padding: 0 32px 64px; }
-.home-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 96px; border-bottom: 1px solid #dce4dc; }
-.home-header .brand { margin: 0; font-size: 20px; }
-.text-button { border: 1px solid #bdcbc0; border-radius: 8px; padding: 10px 14px; min-height: 44px; background: transparent; color: #285d46; font-size: 14px; white-space: nowrap; }
+/* 两组单行书架，根据屏幕高度缩放封面；窄屏左右滑动。 */
+.home-page { max-width: 1040px; margin: 0 auto; padding: 0 20px 12px; }
+.home-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid #dce4dc; }
+.home-header .brand { margin: 0; font-size: 18px; }
+.home-header .brand-icon { width: 28px; height: 32px; font-size: 19px; }
+.text-button { border: 1px solid #bdcbc0; border-radius: 8px; padding: 6px 12px; min-height: 44px; background: transparent; color: #285d46; font-size: 13px; white-space: nowrap; }
 .text-button:hover { background: #e7eee6; }
 .text-button:disabled { opacity: .6; cursor: wait; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 24px 0; }
-.section-heading h2 { margin: 0; font-size: 21px; }
-.series-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
-.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 10px; background: #e2e8df; display: grid; place-items: center; }
-.series-cover img { width: 100%; height: 100%; object-fit: cover; }
-.cover-fallback { color: #64736a; font-size: 14px; }
-.series-card h3 { margin: 12px 0 4px; font-size: 16px; overflow-wrap: anywhere; line-height: 1.5; }
-.series-card p { margin: 0; font-size: 13px; color: #64736a; }
-.empty-state { padding: 40px 20px; background: #fff; border: 1px solid #dce4dc; border-radius: 12px; text-align: center; color: #64736a; }
-@media (max-width: 640px) {
-  .home-page { padding: 0 20px 40px; }
-  .home-header { min-height: 80px; }
-  .home-header .brand { font-size: 18px; }
-  .series-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 48px; margin: 4px 0; }
+.section-heading h2 { margin: 0; font-size: 18px; }
+.series-grid, .recent-series-row {
+  display: grid;
+  grid-auto-flow: column;
+  /* 预留页头、分区标题、卡片文字和间距，剩余高度平分给两排封面。 */
+  grid-auto-columns: min(calc((100% - 36px) / 4), max(68px, calc((100svh - 300px) / 3)), 180px);
+  gap: 12px;
+  overflow-x: auto;
+  padding: 0 0 6px;
+  scroll-snap-type: x proximity;
 }
-
-.recent-series-row { display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 72px) / 4); gap: 24px; overflow-x: auto; padding-bottom: 12px; scroll-snap-type: x proximity; }
-.recent-series-row .series-card { min-width: 0; scroll-snap-align: start; }
-.recent-series-row .series-card h3 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.recent-series-row:focus-visible { outline: 3px solid #7bad91; outline-offset: 4px; }
+.series-card { min-width: 0; scroll-snap-align: start; }
+.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #e2e8df; display: grid; place-items: center; }
+.series-cover img { width: 100%; height: 100%; object-fit: cover; }
+.cover-fallback { color: #64736a; font-size: 12px; }
+.series-card h3 { margin: 6px 0 2px; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; line-height: 1.5; }
+.series-card p { margin: 0; font-size: 12px; color: #64736a; }
+.empty-state { margin: 8px 0; padding: 16px; background: #fff; border: 1px solid #dce4dc; border-radius: 10px; text-align: center; color: #64736a; }
+.series-grid:focus-visible, .recent-series-row:focus-visible { outline: 3px solid #7bad91; outline-offset: 2px; }
 @media (max-width: 640px) {
-  .recent-series-row { grid-auto-columns: 40%; gap: 16px; }
+  .home-page { padding-inline: 16px; }
+  .series-grid, .recent-series-row {
+    grid-auto-columns: min(36%, max(68px, calc((100svh - 300px) / 3)), 160px);
+  }
 }

@@ -83,7 +83,7 @@ onMounted(loadRecent)
               <img v-if="!recentFailedCovers.has(item.id)" :src="item.thumbnailUrl" :alt="item.title + '封面'" loading="lazy" @error="recentFailedCovers.add(item.id)" />
               <span v-else class="cover-fallback">暂无封面</span>
             </div>
-            <h3>{{ item.title }}</h3>
+            <h3 :title="item.title">{{ item.title }}</h3>
             <p>{{ item.booksCount }} 篇</p>
           </article>
         </div>
@@ -98,13 +98,13 @@ onMounted(loadRecent)
         <p v-if="error" class="form-message" role="alert">{{ error }}</p>
         <p v-if="loading && !series.length" class="empty-state" role="status">正在从书库挑选漫画…</p>
         <p v-else-if="!error && !series.length" class="empty-state">还没有可推荐的漫画，请检查 Komga 书库和账号权限。</p>
-        <div v-if="series.length" class="series-grid">
+        <div v-if="series.length" class="series-grid" tabindex="0" role="region" aria-label="随机推荐的系列，可左右滚动">
           <article v-for="item in series" :key="item.id" class="series-card">
             <div class="series-cover">
               <img v-if="!failedCovers.has(item.id)" :src="item.thumbnailUrl" :alt="item.title + '封面'" loading="lazy" @error="failedCovers.add(item.id)" />
               <span v-else class="cover-fallback">暂无封面</span>
             </div>
-            <h3>{{ item.title }}</h3>
+            <h3 :title="item.title">{{ item.title }}</h3>
             <p>{{ item.booksCount }} 篇</p>
           </article>
         </div>
