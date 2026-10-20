@@ -331,3 +331,12 @@ async def save_book_progress(book_id: str, data: ProgressInput, request: Request
     completed = bool((book.get("readProgress") or {}).get("completed")) or data.page == total
     await komga_request("PATCH", f"{path}/read-progress", headers=headers, json={"page": data.page, "completed": completed})
     return Response(status_code=204)
+
+# 组合独立搜索路由，外部地址保持 /api/search。
+from .search import create_search_router
+
+app.include_router(create_search_router(
+    lambda *args, **kwargs: komga_request(*args, **kwargs),
+    current_token,
+    read_json,
+))

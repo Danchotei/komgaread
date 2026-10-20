@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 
-defineProps<{ loggingOut: boolean; logoutMessage: string }>()
-defineEmits<{ logout: [] }>()
 
 interface Series {
   id: string
@@ -91,10 +89,8 @@ onMounted(loadRecent)
   <div class="home-page">
     <header class="home-header">
       <a class="brand" href="./"><span class="brand-icon" aria-hidden="true">K</span>KomgaRead</a>
-      <button class="text-button" :disabled="loggingOut" @click="$emit('logout')">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
     </header>
     <main>
-      <p v-if="logoutMessage" role="alert">{{ logoutMessage }}</p>
       <section aria-labelledby="recent-title" :aria-busy="recentLoading">
         <div class="section-heading">
           <h2 id="recent-title">最近添加</h2>

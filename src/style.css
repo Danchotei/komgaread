@@ -8,35 +8,35 @@
   line-height: 1.65;
 }
 
-/* 进入系列详情时从右侧轻移到原位，离开不播放动画。 */
-.series-slide-enter-active { transition: opacity 450ms ease-in-out, transform 450ms cubic-bezier(0.4, 0, 0.2, 1); }
-.series-slide-enter-from { opacity: 0; transform: translateX(16px); }
-.series-slide-enter-to { opacity: 1; transform: translateX(0); }
-.series-slide-leave-active { transition: opacity 450ms ease-in-out, transform 450ms cubic-bezier(0.4, 0, 0.2, 1); position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
-.series-slide-leave-to { opacity: 0; transform: translateX(-16px); }
+/* 页面以整屏水平滑动切换，不改变透明度。 */
+.series-slide-enter-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); }
+.series-slide-enter-from { transform: translateX(100vw); }
+.series-slide-enter-to { transform: translateX(0); }
+.series-slide-leave-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
+.series-slide-leave-to { transform: translateX(-100vw); }
 @media (prefers-reduced-motion: reduce) {
   .series-slide-enter-active, .series-slide-leave-active { transition: none; }
-  .series-slide-enter-from, .series-slide-leave-to { opacity: 1; transform: none; }
+  .series-slide-enter-from, .series-slide-leave-to { transform: none; }
 }
 
 * { box-sizing: border-box; }
 .page-stage { position: relative; overflow-x: clip; }
-.series-back-enter-active, .series-back-leave-active { transition: opacity 450ms ease-in-out, transform 450ms cubic-bezier(0.4, 0, 0.2, 1); }
+.series-back-enter-active, .series-back-leave-active { transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); }
 .series-back-leave-active { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
-.series-back-enter-from { opacity: 0; transform: translateX(-16px); }
-.series-back-leave-to { opacity: 0; transform: translateX(16px); }
+.series-back-enter-from { transform: translateX(-100vw); }
+.series-back-leave-to { transform: translateX(100vw); }
 @media (prefers-reduced-motion: reduce) {
   .series-back-enter-active, .series-back-leave-active { transition: none; }
   .series-back-enter-from, .series-back-leave-to { transform: none; }
 }
 .tab-slide-left-enter-active, .tab-slide-right-enter-active,
 .tab-slide-left-leave-active, .tab-slide-right-leave-active {
-  transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1), opacity 450ms ease-in-out;
+  transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* 旧页面脱离文档流，避免两个页面上下堆叠。底部导航不参与滑动。 */
 .tab-slide-left-leave-active, .tab-slide-right-leave-active { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
-.tab-slide-left-enter-from, .tab-slide-right-leave-to { transform: translateX(32px); opacity: 0; }
-.tab-slide-right-enter-from, .tab-slide-left-leave-to { transform: translateX(-32px); opacity: 0; }
+.tab-slide-left-enter-from, .tab-slide-right-leave-to { transform: translateX(100vw); }
+.tab-slide-right-enter-from, .tab-slide-left-leave-to { transform: translateX(-100vw); }
 @media (prefers-reduced-motion: reduce) {
   .tab-slide-left-enter-active, .tab-slide-right-enter-active,
   .tab-slide-left-leave-active, .tab-slide-right-leave-active { transition: none; }
@@ -84,7 +84,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
   max-width: 1040px;
   margin: 0 auto;
   height: 100vh;
-  height: 100dvh;
+  height: calc(100dvh - 64px - env(safe-area-inset-bottom, 0px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
@@ -121,7 +121,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
   flex-basis: min(calc((100% - 36px) / 4), calc((100cqh - 4rem) * 2 / 3), 180px);
   min-width: 72px;
   scroll-snap-align: start;
-}.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #e2e8df; display: grid; place-items: center; }
+}
+.series-cover { aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: #e2e8df; display: grid; place-items: center; }
 .series-cover img { width: 100%; height: 100%; object-fit: cover; }
 .cover-fallback { color: #64736a; font-size: 12px; }
 .series-card h3 { margin: 6px 0 2px; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; line-height: 1.5; }
@@ -134,17 +135,11 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
     flex-basis: min(36%, calc((100cqh - 4rem) * 2 / 3), 160px);
   }
 }
-/* 横屏和较矮窗口恢复自然滚动，保证封面和文字可读。 */
-@media (max-height: 600px) {
-  .home-page { height: auto; min-height: 100vh; min-height: 100dvh; }
-  .home-page > main > section { flex: none; height: 280px; }
-}
 
 .cover-link { color: inherit; text-decoration: none; }
 .cover-link:focus-visible { outline: 3px solid #7bad91; outline-offset: 2px; }
 .detail-page { max-width: 1040px; margin: auto; padding: 0 20px 40px; }
 .detail-header { display: flex; align-items: center; gap: 20px; min-height: 68px; border-bottom: 1px solid #dce4dc; }
-.detail-header a, .reader-header a { text-decoration: none; }
 .series-info { display: flex; flex-direction: column; align-items: center; gap: 20px; margin: 28px 0; text-align: center; }
 .series-info > img, .detail-cover-placeholder { width: clamp(180px, 46vw, 240px); aspect-ratio: 2 / 3; object-fit: cover; border-radius: 12px; }
 .series-info > div { min-width: 0; }
@@ -161,9 +156,6 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .reader-page .text-button { color: #e9eee9; border-color: #657c6c; }
 .reader-page .text-button:hover { background: #344b3d; }
 .reader-page .text-button:disabled { opacity: .4; cursor: default; }
-.reader-image-area { position: relative; min-height: 50dvh; text-align: center; }
-.reader-image { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100dvh - 160px); margin: auto; object-fit: contain; }
-.reader-status { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: #19201ce6; padding: 6px 12px; border-radius: 8px; }
 .reader-controls { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; align-items: center; background: #19201cf5; padding: 12px 12px max(12px, env(safe-area-inset-bottom, 0px)); }
 .page-picker { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 12px; }
 .page-picker input { min-height: 44px; width: clamp(50px, 15vw, 160px); padding: 0; accent-color: #7bad91; }
@@ -189,18 +181,14 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .daily-update-note { font-size: 11px; color: #64736a; }
 
 .books-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.books-toolbar select { min-height: 44px; padding: 6px 10px; border: 1px solid #bdcbc0; border-radius: 8px; background: transparent; color: #285d46; font: inherit; font-size: 13px; }
-.books-toolbar select:focus-visible { outline: 3px solid #7bad91; outline-offset: 2px; }
 .book-link .book-progress { margin-top: 3px; color: #285d46; font-size: 11px; }
 
 @media (max-width: 640px) {
   .book-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 8px; }
 }
 
-.progress-save-status { text-align: center; font-size: 12px; padding: 8px; color: #a9c8b3; }
-
 /* 主导航固定在底部，主页缩短可用高度，避免书架被导航遮挡。 */
-.home-page { height: calc(100dvh - 64px - env(safe-area-inset-bottom, 0px)); }
+
 .bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-around;
@@ -243,3 +231,14 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .webtoon-page:not(.is-loaded) img { min-height: 100%; }
 .webtoon-image-error { min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; }
 .webtoon-save-status { max-width: 160px; font-size: 11px; color: #a9c8b3; }
+
+.search-form { margin: 20px 0; }
+/* 搜索页独立滚动，不受路由切换时 window.scrollTo(0, 0) 影响。 */
+.tab-page.search-page { height: 100dvh; min-height: 0; overflow-y: auto; overflow-anchor: none; }
+.search-input-row { display: flex; gap: 10px; }
+.search-input-row input { min-width: 0; flex: 1; }
+.search-count { font-size: 13px; color: #64736a; }
+.search-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 20px 12px; }
+@media(max-width: 640px) { .search-results { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.search-result-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }

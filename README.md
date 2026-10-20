@@ -1,44 +1,43 @@
 # KomgaRead
 
-Vue 3 + TypeScript + Vite 前端，FastAPI 后端。按步骤学习并搭建手机端漫画阅读网站。
+Vue 3 + TypeScript + Vite 前端，Python + FastAPI 后端的手机端漫画阅读网站。漫画来自现有 Komga 服务，按步骤开发和学习。
 
-## 已完成
+## 当前功能
 
-- 登录页：必填检查、显示密码、提交状态及错误提示。
-- 后端通过 Komga 验证账号，返回当前用户；刷新页面检查会话。
-- 简单的登录成功页面及退出登录。
+- 使用 Komga 账号登录，每位用户独立会话；主动登录成功后进入首页。
+- 首页最近添加及每日推荐各显示最多 4 个系列。推荐按中国时间每日 00:00 更新，本地 SQLite 保存当天结果。
+- 底部主页、分类、我导航；个人页提供退出登录。
+- 系列详情展示封面、作者、分类、标签及章节；章节支持序号升序／倒序及阅读状态显示。
+- Webtoon 连续纵向阅读，图片懒加载、失败重试、继续上次进度；轻点显示／隐藏上下工具栏。
+- 图片成功加载且进入阅读位置后保存 Komga 进度，最后一页标记读完；保存失败可重试。
+- 综合搜索标题、作者、分类、标签；OpenCC 提供简繁及台港字形扩展。结果只显示系列。
+- 搜索可按系列最后一章（序号最大）的发行日期排序，缺失日期排最后；全部匹配结果排序后分页。
+- 搜索状态及滚动位置在当前页面运行期间保留，刷新或退出登录后清空。
+- 页面层级返回、500ms 水平滑动动画及手机安全区域适配。
 
-- 首页随机推荐最多 4 个可访问的系列，展示封面、名称和书籍数量，支持换一批。
+个人收藏、点击标签直达搜索、自动跳转下一章尚未实现。
 
-尚未实现系列详情、阅读器及个人收藏。
+## 环境与启动
 
-## 环境
+需要 Node.js 24 LTS、npm、Git、Python 3.12+ 和 uv。
+Windows PowerShell 使用 npm.cmd，避免 npm.ps1 执行策略问题。
 
-- Node.js 24 LTS、npm、Git。
-- Python 3.12 或以上、uv（Python 依赖管理工具）。
-
-Windows PowerShell 使用 npm.cmd，避免 npm.ps1 被执行策略阻止。
-
-## 启动后端
-
-在项目根目录执行：
+首次配置后端（已有 .env 时不要覆盖）：
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
 ```
 
-首次配置时复制即可；已有 .env 时不要覆盖。编辑 backend/.env，将 KOMGA_URL 改成开发电脑能访问的 Komga 地址，可以包含反向代理的子路径。不要填账号或密码。
+编辑 backend/.env 中的 KOMGA_URL。不要填账号或密码。
+
+在项目根目录启动后端：
 
 ```powershell
 uv sync --directory backend
-uv run --directory backend uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv run --directory backend uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-后端接口文档：http://127.0.0.1:8000/docs 。登录和退出接口要求允许的 Origin，正常操作请使用前端页面。
-
-## 启动前端
-
-另开一个终端：
+另开终端启动前端：
 
 ```powershell
 cd D:\manga\komgaread
@@ -46,19 +45,34 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-打开 http://127.0.0.1:5173 。两个终端都需要保持运行，Ctrl+C 停止对应服务。
-Vite 将 /api 请求转发给 127.0.0.1:8000，浏览器不需要直接跨域访问 Komga。
+访问 http://127.0.0.1:5173 。保持两个服务运行，Ctrl+C 停止。
+后端接口文档：http://127.0.0.1:8000/docs 。
+Vite 开发代理把 /api 转发到 127.0.0.1:8000，浏览器不直接访问 Komga。
 
-## 本步代码与请求流程
+当前不使用 --reload：Windows 上曾出现热更新停滞。修改后端代码、配置或依赖后，手动重启并检查运行中的接口。重启会清空内存会话，需要重新登录。
 
-1. src/components/LoginView.vue：v-model 收集输入，提交时 await 登录请求，通过 emit 通知父组件。
-2. src/api/auth.ts：统一使用 fetch 请求本站接口及处理错误。
-3. src/App.vue：保存当前用户，决定显示登录页还是登录成功页面，刷新时请求 /me。
-4. backend/app/main.py：接收登录请求，通过 Basic Auth 请求 Komga /api/v2/users/me，取得用户及 Komga 会话。
-5. 后端仅在内存保存 Komga 会话。浏览器保存 HttpOnly 的本站会话 Cookie，不在 localStorage 存放密码或令牌。
-6. 退出时清除本站会话，并尝试撤销 Komga 会话。
+## 代码入口
 
-前后端字段通过 User 类型及 LoginInput 对应。账号和密码只在用户提交时发送，后端不保存密码。
+```text
+src/App.vue                  登录状态、页面层级和导航动画
+src/components/LoginView.vue 登录表单
+src/components/HomeView.vue  最近添加、每日推荐
+src/components/SearchView.vue 搜索、排序和结果分页
+src/components/SeriesView.vue 系列详情、章节列表
+src/components/ReaderView.vue Webtoon 阅读与进度保存
+src/components/BottomNav.vue 底部导航图标
+src/api/                     前端接口请求及进度写入队列
+src/searchState.ts           当前登录期间的搜索内存快照
+src/style.css                响应式布局和动画
+backend/app/main.py          应用入口、认证、系列及阅读接口
+backend/app/search.py        独立搜索接口，由 main.py 注册
+backend/app/translate.py     OpenCC 关键词转换
+backend/app/daily.py         每日推荐存储及中国日期计算
+backend/tests/              后端自动化测试
+```
+
+search.py 接收共用的请求、认证和 JSON 解析函数，不反向导入 main.py。
+books 在 Komga 接口中表示书籍，本项目产品概念中对应章节。
 
 ## 验证
 
@@ -67,57 +81,26 @@ uv run --directory backend python -m pytest -q
 npm.cmd run build
 ```
 
-自动化测试使用模拟 Komga，覆盖用户会话隔离、刷新检查、过期会话、来源检查、认证失败和退出。
-真实环境请在页面中验证：正确账号登录、刷新保持登录、退出、错误密码提示。开发者没有你的凭据，不会代替你执行真实账号登录。
+测试使用模拟 Komga。真实账号需要在网页验收：登录 → 搜索 → 系列 → 阅读 → 保存进度 → 返回，检查排序和滚动恢复。
+构建输出为 dist；npm.cmd run preview 可预览构建结果，不用于正式部署。
 
-## 当前限制
+## 响应式与正式部署
 
-学习阶段会话存储在单个后端进程中，8 小时后过期；后端重启或代码热重载需要重新登录。不要使用多个 worker。
-正式部署时还需配置 HTTPS、COOKIE_SECURE=true、ALLOWED_ORIGINS 为实际网页来源，以及反向代理 /api。当前 Vite 代理只用于开发。
+CSS 负责按窗口自动适配，不需要为不同手机部署多份网站。
+首页 Grid 和 Flex 分配可用高度，cqh 根据书架高度计算封面宽度；矮屏允许纵向滚动。
+搜索页独立滚动；手机安全区域通过 viewport-fit=cover 和 env(safe-area-inset-*) 留白。
 
-.env、.venv、node_modules、dist 均已忽略。VITE_ 变量会暴露给浏览器，不要用于保存秘密。
+正式部署时，将 dist 放入 NAS 的静态网站服务，并将同域名 /api 反向代理到 FastAPI。
+设置 COOKIE_SECURE=true、ALLOWED_ORIGINS 为实际 HTTPS 网页来源。Vite 开发代理不会出现在正式构建中。
 
-## 后续
+## 数据与限制
 
-读取书库 → 漫画详情和阅读器 → 同步阅读进度 → SQLite 个人收藏。
+- 会话仅在内存保存，8 小时过期，后端重启需要重新登录；当前只运行单 worker。
+- 每日推荐数据保存在 backend/data，部署时应保留该目录。
+- 搜索日期排序需要读取每个匹配系列的末章日期，匹配较多时会增加等待；并发限制为 3。
+- 简繁转换不保证覆盖所有混写组合、同义词和日文异体字。
+- 图片不做额外压缩或后端缓存，沿用 Komga 返回内容。
+- .env、.venv、node_modules、dist、本地数据与日志均不提交。VITE_ 变量会暴露给浏览器，不存放秘密。
+- 用户手动提交 Git；代理不自动提交或推送。
 
 仓库：https://github.com/Danchotei/komgaread
-
-## 第四步：首页随机推荐
-
-- `src/components/HomeView.vue`：首页组件，onMounted 时加载推荐，v-for 渲染卡片。
-- `GET /api/series/recommendations`：使用当前用户的 Komga 会话，先查询系列总数，再随机选择最多 4 个不同的位置读取。不会一次下载整个书库。
-- `GET /api/series/{id}/thumbnail`：后端用当前用户权限读取封面，浏览器只携带本站 Cookie。
-- 换一批会重新随机抽取，可能与上一批有重复。书库不足 4 部时显示全部；书库在抽样过程中变更时，结果可能少于 4 部。
-- 当前卡片仅展示信息，点击进入详情将在后续实现。
-
-验收：登录后看到推荐；刷新或换一批可重新随机；窄屏两列、宽屏四列；空书库和接口失败有提示，封面失败显示占位。
-
-## 最近添加
-
-首页在随机推荐上方展示最近加入 Komga 的 4 个系列，以系列创建时间倒序读取（不是原有系列的更新顺序）。手机端单行横向滑动，宽屏并排显示 4 个；加载、空书库、错误重试和封面占位分别处理。接口为 GET /api/series/recent，复用当前用户权限及封面代理。
-
-## 响应式布局：实现与部署
-
-响应式布局由浏览器根据窗口大小执行 CSS，不需要为每种手机部署一份网站。
-
-1. index.html 的 viewport 设置让页面按设备实际宽度布局；viewport-fit=cover 配合安全区域内边距适配刘海屏。
-2. 首页使用 100dvh 跟随浏览器当前可用高度。Grid 给顶部导航分配实际所需高度，再把剩余高度交给 main。
-3. main 使用 Flex，让最近添加、随机推荐平分剩余空间；每个分区先放标题，再将余下高度交给横向书架。
-4. 书架 container-type:size 建立尺寸容器，卡片使用 cqh 按书架高度计算封面宽度；封面 aspect-ratio:2/3 保持比例。
-5. 640px 以下采用适合手指滑动的卡片宽度；600px 以下的矮窗口恢复自然滚动。按钮保留至少 44px 高度。
-6. 不支持 cqh 的旧浏览器使用前面的固定上限宽度作为回退。
-
-开发时运行 npm.cmd run dev，在浏览器开发者工具中测试 360×640、390×844、430×932 和横屏。检查两排内容、横向滚动、长标题、错误提示和字体放大后的可达性。
-
-部署时执行 npm.cmd run build，将 dist 交给 NAS 的静态网站服务；将同一域名的 /api 转发给 FastAPI。后端设置 COOKIE_SECURE=true、ALLOWED_ORIGINS 为实际 HTTPS 网站来源。Vite 的开发代理不会被打包进 dist，需要正式服务器单独配置 /api 转发。响应式 CSS 会随构建一起发布，手机打开同一个网址即可适配。本次只修改布局，没有执行 NAS 部署。
-
-## 系列详情与阅读器
-
-点击首页系列封面进入 #/series/系列ID，展示标题、简介、出版社和书籍封面。书籍按 Komga 的数字顺序排列，每次读取 48 本，支持加载更多。点击书籍进入 #/books/书籍ID。
-
-阅读器通过后端流式转发每页图片，支持上一页、下一页、页码滑块和键盘左右键。页码从 1 开始，向 Komga 明确传 zero_based=false；为浏览器兼容性请求 JPEG 转换。不同账号的页面和封面请求都携带各自的 Komga 会话；账号需要 Komga 的页面流式读取权限。
-
-代码：SeriesView.vue（系列详情）、ReaderView.vue（阅读器）、App.vue（hash 地址切换）、backend/app/main.py（详情、书籍分页、图片接口）。Hash 地址支持刷新和浏览器前进后退，无需额外安装路由库。
-
-当前只实现基础单页阅读，暂不保存阅读进度、不自动跳转下一本、不预加载全书。图片失败可重试；图片可用浏览器手势缩放。请用实际账号验收首页 → 系列 → 书籍 → 阅读页及返回路径。

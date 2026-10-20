@@ -5,7 +5,9 @@ import HomeView from './components/HomeView.vue'
 import SeriesView from './components/SeriesView.vue'
 import ReaderView from './components/ReaderView.vue'
 import BottomNav from './components/BottomNav.vue'
+import SearchView from './components/SearchView.vue'
 import { authRequest, type User } from './api/auth'
+import { resetSearchState } from './searchState'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
@@ -61,6 +63,7 @@ const loggingOut = ref(false)
 const message = ref('')
 
 function handleLogin(authenticatedUser: User) {
+  resetSearchState()
   // 主动登录成功始终进入首页，不沿用登录前残留的详情／阅读地址。
   window.history.replaceState(null, '', '#/')
   hash.value = '#/'
@@ -76,6 +79,7 @@ onMounted(async () => {
   } catch {
     // 没有有效会话时显示登录表单，提交时再显示具体连接错误。
     user.value = null
+    resetSearchState()
   } finally {
     checking.value = false
   }
@@ -87,6 +91,7 @@ async function logout() {
   try {
     await authRequest<void>('logout', {})
     user.value = null
+    resetSearchState()
   } catch (error) {
     message.value = error instanceof Error ? error.message : '退出失败，请重试'
   } finally {
@@ -101,16 +106,15 @@ async function logout() {
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
   <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" @back="goBackFromSeries" />
   <ReaderView v-else-if="user && route?.type === 'books'" :key="route.id" :book-id="route.id" />
-  <main v-else-if="user && activeTab !== 'home'" :key="activeTab" class="tab-page">
-    <h1>{{ activeTab === 'categories' ? '分类' : '我' }}</h1>
-    <p v-if="activeTab === 'categories'" class="intro">分类功能即将加入。</p>
-    <template v-else>
-      <p class="account-email">{{ user.email }}</p>
-      <button class="text-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
-      <p v-if="message" role="alert">{{ message }}</p>
-    </template>
+  <SearchView v-else-if="user && activeTab === 'categories'" />
+  <main v-else-if="user && activeTab === 'me'" :key="activeTab" class="tab-page">
+    <h1>我</h1>
+
+    <p class="account-email">{{ user.email }}</p>
+    <button class="text-button" :disabled="loggingOut" @click="logout">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
+    <p v-if="message" role="alert">{{ message }}</p>
   </main>
-  <HomeView v-else-if="user" :logging-out="loggingOut" :logout-message="message" @logout="logout" />
+  <HomeView v-else-if="user" />
   <LoginView v-else @authenticated="handleLogin" />
   </Transition>
   </div>
