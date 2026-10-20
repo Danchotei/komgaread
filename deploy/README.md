@@ -61,7 +61,11 @@ COOKIE_SECURE=true 同时声明外部入口使用 HTTPS，即使 NAS 到容器�
 GHCR 自动发布不代表 NAS 自动更新。前后端随同一镜像一起更新。
 需要回退时，把 IMAGE_TAG 改为之前成功版本的 sha-完整提交SHA，再 pull、up。
 
-每日推荐 SQLite 保存在 manga-data 命名卷，更新容器保留；不要使用 down -v 删除它。
+每日推荐 SQLite 保存在 /data/daily.sqlite3，Compose 将 manga-data 命名卷挂载到 /data。
+应用的 /app/backend/data 是指向 /data 的符号链接，代码和依赖目录无需挂载。
+使用 NAS 目录时可改为 /你的NAS目录/komgaread/data:/data，并允许 UID 10001 写入。
+已有部署只需将原数据卷或原 NAS 目录的容器目标改成 /data，保留原数据来源及文件。
+此修改必须配合新版镜像，旧镜像仍使用旧路径。更新容器会保留数据，不要使用 down -v 删除它。
 阅读进度保存在 Komga。登录会话在内存，后端重启需要重新登录，只能运行单 worker / 单容器副本。
 
 ## 可选：本机测试构建
