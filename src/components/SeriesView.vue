@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { getJson } from '../api/library'
 const props = defineProps<{ seriesId: string }>()
+defineEmits<{ back: [] }>()
 interface Series { title: string; summary: string; publisher: string; booksCount: number; thumbnailUrl: string; authors: string[]; genres: string[]; tags: string[] }
 interface Book { id: string; title: string; pagesCount: number; thumbnailUrl: string; readProgress: { page: number; completed: boolean } | null }
 const series = ref<Series | null>(null)
@@ -54,7 +55,7 @@ onMounted(load)
 
 <template>
   <main class="detail-page">
-    <header class="detail-header"><a class="text-button" href="#/">返回首页</a><span>系列详情</span></header>
+    <header class="detail-header"><button class="text-button" @click="$emit('back')">返回</button><span>系列详情</span></header>
     <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" @click="series ? loadBooks() : load()">重试</button></p>
     <p v-if="!series && !error" role="status">正在加载…</p>
     <template v-if="series">

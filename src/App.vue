@@ -9,16 +9,31 @@ import { authRequest, type User } from './api/auth'
 
 const hash = ref(window.location.hash)
 const tabTransition = ref('page-static')
+let historyIndex = Number(window.history.state?.komgaNavIndex) || 0
+window.history.replaceState({ ...window.history.state, komgaNavIndex: historyIndex }, '')
+let returningFromSeries = false
+function goBackFromSeries() {
+  returningFromSeries = true
+  if (historyIndex > 0) window.history.back()
+  else window.location.hash = '#/'
+}
 function tabIndex(value: string) {
   return ['#/', '#/categories', '#/me'].indexOf(value || '#/')
 }
 function updateRoute() {
+  const nextIndex = window.history.state?.komgaNavIndex
+  const goingBack = typeof nextIndex === 'number' && nextIndex < historyIndex
+  const leavingSeries = hash.value.startsWith('#/series/')
+  historyIndex = typeof nextIndex === 'number' ? nextIndex : historyIndex + 1
+  window.history.replaceState({ ...window.history.state, komgaNavIndex: historyIndex }, '')
   const from = tabIndex(hash.value)
   const to = tabIndex(window.location.hash)
   // 索引增大：向左滑动；索引减小：向右滑动。
   tabTransition.value = from >= 0 && to >= 0 && from !== to
     ? (to > from ? 'tab-slide-left' : 'tab-slide-right')
     : 'page-static'
+  if (leavingSeries && (returningFromSeries || goingBack)) tabTransition.value = 'series-back'
+  returningFromSeries = false
   hash.value = window.location.hash
   window.scrollTo(0, 0)
 }
@@ -62,9 +77,9 @@ async function logout() {
 
 <template>
   <div class="page-stage">
-  <Transition :name="user && !checking ? (route?.type === 'series' ? 'series-slide' : tabTransition) : 'page-static'">
+  <Transition :name="user && !checking ? (tabTransition === 'series-back' ? 'series-back' : route?.type === 'series' ? 'series-slide' : tabTransition) : 'page-static'">
   <main v-if="checking" class="login-page" role="status">正在检查登录状态…</main>
-  <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" />
+  <SeriesView v-else-if="user && route?.type === 'series'" :key="route.id" :series-id="route.id" @back="goBackFromSeries" />
   <ReaderView v-else-if="user && route?.type === 'books'" :key="route.id" :book-id="route.id" />
   <main v-else-if="user && activeTab !== 'home'" :key="activeTab" class="tab-page">
     <h1>{{ activeTab === 'categories' ? '分类' : '我' }}</h1>
