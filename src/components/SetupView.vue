@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import headerMascot from '../assets/header-mascot.png'
 import { setupRequest, type SetupCheck } from '../api/setup'
 
 const emit = defineEmits<{ configured: [] }>()
@@ -32,7 +33,7 @@ async function submit(save: boolean) {
 <template>
   <main class="login-page">
     <div class="login-container">
-      <div class="brand"><span class="brand-icon">K</span>KomgaRead</div>
+      <div class="brand"><img class="brand-mascot" :src="headerMascot" alt="" width="64" height="64" />KomgaRead</div>
       <section class="login-card">
         <p class="eyebrow">首次启动</p>
         <h1>连接 Komga</h1>

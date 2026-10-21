@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import headerMascot from '../assets/header-mascot.png'
 import { authRequest, type User } from '../api/auth'
 
 const emit = defineEmits<{ authenticated: [user: User] }>()
@@ -34,7 +35,7 @@ function clearMessage() {
   <main class="login-page">
     <div class="login-container">
       <a class="brand" href="./" aria-label="KomgaRead 首页">
-        <span class="brand-icon" aria-hidden="true">K</span>
+        <img class="brand-mascot" :src="headerMascot" alt="" width="64" height="64" />
         KomgaRead
       </a>
 
