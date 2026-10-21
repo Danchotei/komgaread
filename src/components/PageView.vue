@@ -5,6 +5,7 @@ import SearchView from './SearchView.vue'
 import SeriesView from './SeriesView.vue'
 import ReaderView from './ReaderView.vue'
 import CategoriesView from './CategoriesView.vue'
+import ProfileView from './ProfileView.vue'
 import type { User } from '../api/auth'
 const props = defineProps<{ pageHash: string; user: User; loggingOut: boolean; message: string; canBack: boolean }>()
 const emit = defineEmits<{ back: []; logout: [] }>()
@@ -19,7 +20,7 @@ const route = computed(() => {
     <ReaderView v-else-if="route?.type === 'books'" :book-id="route.id" />
     <SearchView v-else-if="pageHash === '#/search'" :can-back="canBack" @back="emit('back')" />
     <CategoriesView v-else-if="pageHash === '#/categories'" />
-    <main v-else-if="pageHash === '#/me'" class="tab-page"><h1 class="tab-title">我</h1><p class="account-email">{{ user.email }}</p><button class="text-button" :disabled="loggingOut" @click="emit('logout')">{{ loggingOut ? '正在退出…' : '退出登录' }}</button><p v-if="message" role="alert">{{ message }}</p></main>
+    <ProfileView v-else-if="pageHash === '#/me'" :user="user" :logging-out="loggingOut" :message="message" @logout="emit('logout')" />
     <HomeView v-else />
   </div>
 </template>

@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { nextTick, onActivated, onMounted, ref } from 'vue'
 import { getJson } from '../api/library'
 import { searchMetadata } from '../searchState'
+import SeriesSummary from './SeriesSummary.vue'
+import SeriesReactions from './SeriesReactions.vue'
 import type { SeriesInfo, ChapterInfo } from '../seriesState'
 const props = defineProps<{ seriesId: string }>()
 defineEmits<{ back: [] }>()
 const series = ref<SeriesInfo | null>(null)
 const books = ref<ChapterInfo[]>([])
 const error = ref('')
+const historyError = ref('')
+async function recordVisit() {
+  historyError.value = ''
+  try {
+    const response = await fetch(`/api/series/${encodeURIComponent(props.seriesId)}/visit`, { method: 'POST', credentials: 'same-origin' })
+    if (!response.ok) throw new Error('浏览记录未保存')
+  } catch { historyError.value = '浏览记录未保存，可点击重试' }
+}
+onActivated(() => { if (series.value) void recordVisit() })
 const loading = ref(false)
 const last = ref(false)
 const page = ref(0)
@@ -51,6 +62,7 @@ async function load() {
   error.value = ''
   try {
     series.value = await getJson<SeriesInfo>(`/api/series/${encodeURIComponent(props.seriesId)}`)
+    void recordVisit()
     await loadBooks()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '系列加载失败' }
 }
@@ -61,6 +73,7 @@ onMounted(load)
   <main class="detail-page">
     <button class="text-button detail-back" @click="$emit('back')">← 返回</button>
     <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" @click="series ? loadBooks() : load()">重试</button></p>
+    <p v-if="historyError" class="personal-hint" role="status">{{ historyError }} <button class="text-button" @click="recordVisit">重试</button></p>
     <p v-if="!series && !error" role="status">正在加载…</p>
     <template v-if="series">
       <section class="series-info">
@@ -73,9 +86,10 @@ onMounted(load)
             <div><dt>分类</dt><dd class="metadata-tags"><template v-if="series.genres?.length"><button v-for="genre in series.genres" :key="genre" class="metadata-button" :disabled="loading" @click="openMetadata(genre, 'genre')">{{ genre }}</button></template><template v-else>暂无</template></dd></div>
             <div><dt>标签</dt><dd class="metadata-tags"><template v-if="series.tags?.length"><button v-for="tag in series.tags" :key="tag" class="metadata-button" :disabled="loading" @click="openMetadata(tag, 'tag')">{{ tag }}</button></template><template v-else>暂无</template></dd></div>
           </dl>
-          <p v-if="series.summary" class="series-summary">{{ series.summary }}</p>
+          <SeriesSummary v-if="series.summary" :summary="series.summary" />
         </div>
       </section>
+      <SeriesReactions :series-id="seriesId" />
       <div class="books-toolbar"><h2 class="books-heading">章节 <small>{{ series.booksCount }} 章</small></h2><button class="text-button" :aria-label="order === 'asc' ? '当前序号升序，点击切换倒序' : '当前序号倒序，点击切换升序'" :disabled="loading" @click="changeOrder">{{ order === 'asc' ? '序号升序 ↑' : '序号倒序 ↓' }}</button></div>
       <div class="book-grid">
         <a v-for="book in books" :key="book.id" class="book-link" :href="`#/books/${encodeURIComponent(book.id)}`">

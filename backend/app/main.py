@@ -409,3 +409,15 @@ app.include_router(create_setup_router(komga_url))
 from .registration import create_registration_router
 
 app.include_router(create_registration_router(komga_url))
+
+from .reactions import create_reactions_router
+
+app.include_router(create_reactions_router(
+    lambda *args, **kwargs: komga_request(*args, **kwargs), current_token, public_user,
+))
+
+from .personal import create_personal_router
+
+app.include_router(create_personal_router(
+    lambda *args, **kwargs: komga_request(*args, **kwargs), current_token, public_user, read_json,
+))

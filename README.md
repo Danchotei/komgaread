@@ -68,6 +68,8 @@ src/style.css                响应式布局和动画
 backend/app/main.py          应用入口、认证、系列及阅读接口
 backend/app/search.py        独立搜索接口，由 main.py 注册
 backend/app/registration.py  邮箱注册，使用后台管理员 API 密钥创建在线阅读账号
+backend/app/reactions.py     系列点赞、收藏及全体用户计数，持久化到 SQLite
+backend/app/personal.py      用户浏览历史（最多 50 条）和收藏列表，使用递增序号排序
 backend/app/translate.py     OpenCC 关键词转换
 backend/app/daily.py         每日推荐存储及中国日期计算
 backend/tests/              后端自动化测试

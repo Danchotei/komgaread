@@ -1,10 +1,12 @@
 """系列搜索路由。共享能力由入口传入，不反向导入 main，避免循环引用。"""
 import asyncio
+import sqlite3
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 
 def create_search_router(
@@ -16,13 +18,25 @@ def create_search_router(
     limiter = asyncio.Semaphore(3)
 
     @router.get("/search")
-    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None, exact: bool = False):
+    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None, exact: bool = False, favorites: bool = False):
         from urllib.parse import quote
         if type not in {"all", "title", "author", "genre", "tag"} or page < 0 or not q.strip() or len(q) > 200:
             raise HTTPException(422, "请选择搜索类型并输入 1–200 字的关键词")
         if order not in {None, "asc", "desc"}:
             raise HTTPException(422, "排序方式必须为 asc 或 desc")
         headers = {"X-Auth-Token": current_token(request)}
+        favorite_ids = None
+        if favorites:
+            from .personal import favorite_series_ids
+            user = read_json(await komga_request("GET", "/api/v2/users/me", headers=headers))
+            if not isinstance(user, dict) or not isinstance(user.get("id"), str):
+                raise HTTPException(502, "Komga 用户信息格式不正确")
+            try:
+                favorite_ids = await run_in_threadpool(favorite_series_ids, user["id"])
+            except (sqlite3.Error, OSError):
+                raise HTTPException(503, "收藏暂时不可用，请重试") from None
+            if not favorite_ids:
+                return {"items": [], "last": True, "total": 0}
         keyword = q.strip()
         from .translate import keyword_variants
         variants = keyword_variants(keyword)
@@ -63,9 +77,18 @@ def create_search_router(
         # 合并条件后只查询一次系列，由 Komga 统一去重及分页。
         condition = conditions[0] if type == "title" and len(conditions) == 1 else {"anyOf": conditions}
         params = {"page": page, "size": 16, "sort": "metadata.titleSort,asc"}
-        if order:
+        if order or favorites:
             params = {"unpaged": "true", "sort": "metadata.titleSort,asc"}
         data = read_json(await komga_request("POST", "/api/v1/series/list", headers=headers, params=params, json={"condition": condition}))
+        if favorite_ids is not None:
+            # Komga 的系列条件不支持按系列 ID 过滤：先匹配，再与本账号收藏取交集，最后分页。
+            ranks = {series_id: index for index, series_id in enumerate(favorite_ids)}
+            content = [item for item in data["content"] if item["id"] in ranks]
+            content.sort(key=lambda item: ranks[item["id"]])
+            data = {"content": content, "totalElements": len(content), "last": True}
+            if not order:
+                data["content"] = content[page * 16:(page + 1) * 16]
+                data["last"] = (page + 1) * 16 >= len(content)
         if order:
             async def last_release(item):
                 async with limiter:
