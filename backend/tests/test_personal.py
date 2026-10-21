@@ -16,12 +16,14 @@ def storage(monkeypatch, tmp_path):
     main.sessions.clear()
 
     async def upstream(method, path, **kwargs):
+        if path == "/api/v1/books/list":
+            return httpx.Response(200, json={"content": [{"metadata": {"releaseDate": "2026-10-01"}}]})
         if path.endswith("/blocked"):
             raise HTTPException(404, "不可访问")
         if path == "/api/v2/users/me":
             user = kwargs["headers"]["X-Auth-Token"]
             return httpx.Response(200, json={"id": user, "email": f"{user}@example.com"})
-        return httpx.Response(200, json={"id": path.split('/')[-1], "metadata": {"title": "系列标题"}, "booksCount": 2})
+        return httpx.Response(200, json={"id": path.split('/')[-1], "metadata": {"title": "系列标题", "genres": ["全彩"]}, "booksCount": 2})
 
     monkeypatch.setattr(main, "komga_request", upstream)
     yield
@@ -111,7 +113,25 @@ def test_endpoints_auth_order_permissions_and_isolation():
     result = a.get("/api/me/history").json()
     assert [item["id"] for item in result["items"]] == list("4651")
     assert result["items"][0]["title"] == "系列标题"
+    assert result["items"][0]["genres"] == ["全彩"]
+    assert result["items"][0]["lastReleaseDate"] == "2026-10-01"
     a.patch("/api/series/4/reactions", headers=ORIGIN, json={"kind": "favorite", "selected": True})
     assert a.get("/api/me/favorites").json()["items"][0]["id"] == "4"
     assert b.get("/api/me/favorites").json()["items"] == []
     assert a.get("/api/me/history?page=-1").status_code == 422
+
+
+def test_display_name_default_save_persist_and_isolation():
+    anonymous = TestClient(main.app)
+    assert anonymous.get("/api/me/profile").status_code == 401
+    assert anonymous.patch("/api/me/profile", headers=ORIGIN, json={"display_name": "名字"}).status_code == 401
+    a, b = client_for("a"), client_for("b")
+    assert a.get("/api/me/profile").json() == {"displayName": "a@example.com"}
+    assert a.patch("/api/me/profile", headers=ORIGIN, json={"display_name": "  我的昵称  "}).json() == {"displayName": "我的昵称"}
+    assert client_for("a").get("/api/me/profile").json() == {"displayName": "我的昵称"}
+    assert b.get("/api/me/profile").json() == {"displayName": "b@example.com"}
+    assert a.get("/api/auth/me").json()["email"] == "a@example.com"
+    for name in ["", "   ", "长" * 41, "名字\n换行"]:
+        assert a.patch("/api/me/profile", headers=ORIGIN, json={"display_name": name}).status_code == 422
+    assert a.patch("/api/me/profile", headers=ORIGIN, json={"display_name": "冒充", "user_id": "b"}).status_code == 422
+    assert a.get("/api/me/profile").json() == {"displayName": "我的昵称"}

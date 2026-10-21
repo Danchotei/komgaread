@@ -9,6 +9,30 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 
+async def fill_last_release(items, komga_request, headers, read_json, limiter):
+    async def last_release(item):
+        async with limiter:
+            chapters = read_json(await komga_request("POST", "/api/v1/books/list", headers=headers,
+                params={"page": 0, "size": 1, "sort": "metadata.numberSort,desc"},
+                json={"condition": {"seriesId": {"operator": "is", "value": item["id"]}}}))
+        content = chapters["content"]
+        item["lastReleaseDate"] = content[0].get("metadata", {}).get("releaseDate") if content else None
+        return item
+    checked = await asyncio.gather(*(last_release(item) for item in items), return_exceptions=True)
+    for item in checked:
+        if isinstance(item, BaseException):
+            raise item
+    return checked
+
+
+async def order_by_last_release(items, order, komga_request, headers, read_json, limiter):
+    checked = await fill_last_release(items, komga_request, headers, read_json, limiter)
+    known = [item for item in checked if item["lastReleaseDate"]]
+    unknown = [item for item in checked if not item["lastReleaseDate"]]
+    known.sort(key=lambda item: item["lastReleaseDate"], reverse=order == "desc")
+    return known + unknown
+
+
 def create_search_router(
     komga_request: Callable[..., Awaitable[httpx.Response]],
     current_token: Callable[[Request], str],
@@ -90,23 +114,8 @@ def create_search_router(
                 data["content"] = content[page * 16:(page + 1) * 16]
                 data["last"] = (page + 1) * 16 >= len(content)
         if order:
-            async def last_release(item):
-                async with limiter:
-                    chapters = read_json(await komga_request("POST", "/api/v1/books/list", headers=headers,
-                        params={"page": 0, "size": 1, "sort": "metadata.numberSort,desc"},
-                        json={"condition": {"seriesId": {"operator": "is", "value": item["id"]}}}))
-                content = chapters["content"]
-                item["lastReleaseDate"] = (content[0].get("metadata", {}).get("releaseDate") if content else None)
-                return item
             # 全部匹配系列先排序，再切分页，不能只对当前 16 项排序。
-            checked = await asyncio.gather(*(last_release(item) for item in data["content"]), return_exceptions=True)
-            for item in checked:
-                if isinstance(item, BaseException):
-                    raise item
-            known = [item for item in checked if item["lastReleaseDate"]]
-            unknown = [item for item in checked if not item["lastReleaseDate"]]
-            known.sort(key=lambda item: item["lastReleaseDate"], reverse=order == "desc")
-            ordered = known + unknown
+            ordered = await order_by_last_release(data["content"], order, komga_request, headers, read_json, limiter)
             data = {"content": ordered[page * 16:(page + 1) * 16], "totalElements": len(ordered), "last": (page + 1) * 16 >= len(ordered)}
         return {"items": [{"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "booksCount": item.get("booksCount", 0), "genres": item.get("metadata", {}).get("genres") or [], "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"} for item in data["content"]], "last": data["last"], "total": data["totalElements"]}
 

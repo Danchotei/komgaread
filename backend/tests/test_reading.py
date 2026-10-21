@@ -6,7 +6,7 @@ from app import main
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(main, "sessions", {"reader": ("reader-token", main.time() + 60)})
+    main.sessions.update({"reader": ("reader-token", main.time() + 60)})
     client = TestClient(main.app)
     client.cookies.set(main.COOKIE_NAME, "reader")
     return client

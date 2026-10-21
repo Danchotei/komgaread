@@ -39,5 +39,5 @@ __pycache__/
 htmlcov/
 *.pyc
 
-# 每日推荐数据库及其 SQLite 临时文件。
+# 运行数据：配置、登录凭据、推荐和个人记录数据库及 SQLite 临时文件。
 backend/data/

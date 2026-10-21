@@ -8,7 +8,7 @@ from app import main, reactions
 @pytest.fixture(autouse=True)
 def store(monkeypatch, tmp_path):
     monkeypatch.setattr(reactions, "STORE", tmp_path / "reactions.sqlite3")
-    monkeypatch.setattr(main, "sessions", {"a": ("a", main.time() + 60), "b": ("b", main.time() + 60)})
+    main.sessions.update({"a": ("a", main.time() + 60), "b": ("b", main.time() + 60)})
 
 
 def client_for(user):

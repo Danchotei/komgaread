@@ -12,16 +12,6 @@ import { navigateTo } from './navigation'
  * 刷新或关闭网页后清空；登录、退出等身份重置时由 App.vue 调用 resetSearchState。
  */
 
-/** 一张搜索结果卡片需要的数据，图片这里只存地址。 */
-export interface SearchSeries {
-  id: string
-  title: string
-  booksCount: number // 本项目中对应章节数量。
-  genres?: string[] // 系列分类，搜索卡片中以纯文本显示。
-  thumbnailUrl: string
-  lastReleaseDate?: string | null // 序号最后一章的发行日期，可能缺失。
-}
-
 /** 新搜索的一次性入口参数；结果、分页和滚动由页面实例保存。 */
 export interface SearchEntry {
   keyword: string

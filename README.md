@@ -49,7 +49,7 @@ npm.cmd run dev
 后端接口文档：http://127.0.0.1:8000/docs 。
 Vite 开发代理把 /api 转发到 127.0.0.1:8000，浏览器不直接访问 Komga。
 
-当前不使用 --reload：Windows 上曾出现热更新停滞。修改后端代码、配置或依赖后，手动重启并检查运行中的接口。重启会清空内存会话，需要重新登录。
+当前不使用 --reload：Windows 上曾出现热更新停滞。修改后端代码、配置或依赖后，手动重启并检查运行中的接口。会话持久化到 backend/data/sessions.sqlite3，重启后保留；旧内存会话升级后需重新登录一次。
 
 ## 代码入口
 
@@ -59,6 +59,8 @@ src/navigation.ts            History API 站内导航入口
 src/components/LoginView.vue 登录表单
 src/components/HomeView.vue  最近添加、每日推荐
 src/components/SearchView.vue 搜索、排序和结果分页
+src/components/SeriesResultCard.vue 搜索、浏览及个人列表共用的系列卡片
+src/components/BackToTop.vue 搜索页与浏览页共用的返回顶部按钮
 src/components/SeriesView.vue 系列详情、章节列表
 src/components/ReaderView.vue Webtoon 阅读与进度保存
 src/components/BottomNav.vue 底部导航图标
@@ -70,6 +72,8 @@ backend/app/search.py        独立搜索接口，由 main.py 注册
 backend/app/registration.py  邮箱注册，使用后台管理员 API 密钥创建在线阅读账号
 backend/app/reactions.py     系列点赞、收藏及全体用户计数，持久化到 SQLite
 backend/app/personal.py      用户浏览历史（最多 50 条）和收藏列表，使用递增序号排序
+backend/app/session_store.py SQLite 登录持久化；14 天闲置过期，Komga Remember Me 自动恢复
+backend/app/browse.py        分类页最近更新（最多 30 个）、随机 12 个和按名称浏览所有系列
 backend/app/translate.py     OpenCC 关键词转换
 backend/app/daily.py         每日推荐存储及中国日期计算
 backend/tests/              后端自动化测试
@@ -99,7 +103,7 @@ HTTPS 部署设置 COOKIE_SECURE=true；ALLOWED_ORIGINS=* 默认允许任意 HTT
 
 ## 数据与限制
 
-- 会话仅在内存保存，8 小时过期，后端重启需要重新登录；当前只运行单 worker。
+- 会话持久化保存，成功的已认证访问自动续期 14 天，连续 14 天不访问后失效；支持 Komga remember-me 恢复，当前只运行单 worker。
 - 每日推荐数据在本地保存在 backend/data；Docker 中通过符号链接写入 /data，持久化映射目标为 /data。
 - 首次启动在网页填写 Komga 公网地址、管理员 API 密钥和注册邀请码，测试通过后保存到 /data/komga.json；初始化密钥默认自动生成并显示在启动日志，也支持手动 SETUP_KEY。详见 deploy/README.md。
 - 搜索日期排序需要读取每个匹配系列的末章日期，匹配较多时会增加等待；并发限制为 3。

@@ -35,7 +35,7 @@ function finishTransition() {
 function pageLevel(value: string) {
   if (value.startsWith('#/books/')) return 3
   if (value.startsWith('#/series/')) return 2
-  if (value === '#/search') return 1
+  if (value === '#/search' || value.startsWith('#/browse/')) return 1
   return 0
 }
 let nextKey = 1
@@ -133,8 +133,10 @@ function updateRoute(event?: Event) {
   // 点击系列封面弹出详情，返回时收起详情；搜索入口沿用同一套效果。
   if (target.startsWith('#/series/') && !returning) tabTransition.value = 'card-open'
   if (target === '#/search') tabTransition.value = 'card-open'
+  if (target.startsWith('#/browse/') && !returning) tabTransition.value = 'card-open'
   if (hash.value.startsWith('#/series/') && returning) tabTransition.value = 'card-close'
   if (hash.value === '#/search' && (toLevel === 0 || returning)) tabTransition.value = 'card-close'
+  if (hash.value.startsWith('#/browse/') && returning) tabTransition.value = 'card-close'
   // 系统返回手势／浏览器前后退已有原生过渡，不叠加网页动画。
   if (browserNavigation) tabTransition.value = 'page-static'
 
@@ -190,7 +192,7 @@ const route = computed(() => {
   try { return match ? { type: match[1], id: decodeURIComponent(match[2]!) } : null }
   catch { return null }
 })
-const activeTab = computed(() => hash.value === '#/categories' ? 'categories' : hash.value === '#/me' ? 'me' : 'home')
+const activeTab = computed(() => hash.value === '#/categories' || hash.value.startsWith('#/browse/') ? 'categories' : hash.value === '#/me' ? 'me' : 'home')
 const user = ref<User | null>(null)
 const checking = ref(true)
 const setupStatus = ref<SetupStatus | null>(null)

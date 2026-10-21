@@ -1,14 +1,53 @@
 <script setup lang="ts">
-import { onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { User } from '../api/auth'
 import { getJson } from '../api/library'
+import SeriesResultCard from './SeriesResultCard.vue'
+import type { SeriesCardItem } from '../seriesState'
 
-defineProps<{ user: User; loggingOut: boolean; message: string }>()
+const props = defineProps<{ user: User; loggingOut: boolean; message: string }>()
 defineEmits<{ logout: [] }>()
+const displayName = ref(props.user.email)
+const draftName = ref('')
+const editingName = ref(false)
+const profileBusy = ref(false)
+const profileError = ref('')
+const nameInput = ref<HTMLInputElement | null>(null)
+async function loadProfile() {
+  if (profileBusy.value) return
+  profileBusy.value = true
+  try {
+    const data = await getJson<{ displayName: string }>('/api/me/profile')
+    displayName.value = data.displayName
+    profileError.value = ''
+  } catch (cause) { profileError.value = cause instanceof Error ? cause.message : '用户名加载失败' }
+  finally { profileBusy.value = false }
+}
+async function editName() {
+  draftName.value = displayName.value
+  editingName.value = true
+  profileError.value = ''
+  await nextTick()
+  nameInput.value?.focus()
+}
+async function saveName() {
+  if (profileBusy.value) return
+  const name = draftName.value.trim()
+  if (!name || [...name].length > 40) { profileError.value = '请输入 1–40 个字符的名字'; return }
+  profileBusy.value = true
+  profileError.value = ''
+  try {
+    const response = await fetch('/api/me/profile', { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_name: name }) })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data) throw new Error(typeof data?.detail === 'string' ? data.detail : '名字保存失败，请重试')
+    displayName.value = data.displayName
+    editingName.value = false
+  } catch (cause) { profileError.value = cause instanceof Error ? cause.message : '名字保存失败，请重试' }
+  finally { profileBusy.value = false }
+}
 type Kind = 'history' | 'favorites'
-interface Item { id: string; title: string; booksCount: number; thumbnailUrl: string }
 const selected = ref<Kind>('history')
-const createList = () => ({ items: [] as Item[], page: 0, last: false, busy: false, error: '' })
+const createList = () => ({ items: [] as SeriesCardItem[], page: 0, last: false, busy: false, error: '' })
 const lists = reactive({ history: createList(), favorites: createList() })
 const failed = reactive(new Set<string>())
 const favoriteKeyword = ref('')
@@ -41,14 +80,14 @@ async function load(kind: Kind, more = false, reset = false) {
     // 从详情返回时保留已加载页数，一次替换列表，避免先清空造成高度跳变。
     const start = more ? list.page : 0
     const end = more ? start + 1 : reset ? 1 : Math.max(1, list.page)
-    const items: Item[] = more ? [...list.items] : []
+    const items: SeriesCardItem[] = more ? [...list.items] : []
     let last = false
     let nextPage = start
     for (let page = start; page < end; page++) {
       const path = kind === 'favorites' && keyword
         ? `/api/search?favorites=true&q=${encodeURIComponent(keyword)}&page=${page}`
         : `/api/me/${kind}?page=${page}`
-      const data = await getJson<{ items: Item[]; last: boolean }>(path)
+      const data = await getJson<{ items: SeriesCardItem[]; last: boolean }>(path)
       if (version !== versions[kind]) return
       items.push(...data.items)
       last = data.last
@@ -63,6 +102,7 @@ async function load(kind: Kind, more = false, reset = false) {
   } finally { if (version === versions[kind]) list.busy = false }
 }
 function refresh() {
+  void loadProfile()
   void load('history')
   if (appliedKeyword.value !== favoriteKeyword.value.trim()) void searchFavorites()
   else void load('favorites')
@@ -82,7 +122,9 @@ onUnmounted(stopPending)
 
 <template>
   <main class="tab-page profile-page">
-    <h1 class="tab-title">我</h1>
+    <div class="profile-name-heading"><h1>{{ displayName }}</h1><button class="profile-name-edit" type="button" aria-label="修改用户名" title="修改用户名" :disabled="profileBusy || editingName" @click="editName"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15Z" /></svg></button></div>
+    <form v-if="editingName" class="profile-name-form" @submit.prevent="saveName"><label for="profile-name">用户名</label><div class="search-input-row"><input id="profile-name" ref="nameInput" v-model="draftName" required maxlength="40" autocomplete="nickname" :disabled="profileBusy" /><button class="text-button" type="submit" :disabled="profileBusy">{{ profileBusy ? '保存中…' : '保存' }}</button><button class="text-button" type="button" :disabled="profileBusy" @click="editingName = false; profileError = ''">取消</button></div></form>
+    <p v-if="profileError" class="personal-hint" role="alert">{{ profileError }} <button v-if="!editingName" class="text-button" :disabled="profileBusy" @click="loadProfile">重试</button></p>
     <p class="account-email">{{ user.email }}</p>
     <button class="text-button" :disabled="loggingOut" @click="$emit('logout')">{{ loggingOut ? '正在退出…' : '退出登录' }}</button>
     <p v-if="message" role="alert">{{ message }}</p>
@@ -97,11 +139,8 @@ onUnmounted(stopPending)
       <p class="personal-hint">{{ kind === 'history' ? '最近浏览的系列，最多保留 50 条' : '最近收藏的系列排在最前' }}</p>
       <p v-if="lists[kind].error" class="form-message" role="alert">{{ lists[kind].error }} <button class="text-button" :disabled="lists[kind].busy" @click="load(kind)">重试</button></p>
       <p v-if="!lists[kind].items.length && !lists[kind].error" class="empty-state">{{ lists[kind].busy ? '正在加载…' : kind === 'history' ? '暂无浏览记录' : appliedKeyword ? '收藏中没有匹配的系列' : '暂无收藏，点击系列详情中的星星即可收藏' }}</p>
-      <div class="personal-series-grid">
-        <a v-for="item in lists[kind].items" :key="item.id" class="book-link" :href="`#/series/${encodeURIComponent(item.id)}`">
-          <div class="series-cover"><img v-if="!failed.has(item.id)" :src="item.thumbnailUrl" :alt="item.title" loading="lazy" @error="failed.add(item.id)" /><span v-else class="cover-fallback">暂无封面</span></div>
-          <h3>{{ item.title }}</h3><p>{{ item.booksCount }} 章</p>
-        </a>
+      <div class="series-results">
+        <SeriesResultCard v-for="item in lists[kind].items" :key="item.id" :item="item" :failed="failed.has(item.id)" @cover-error="failed.add(item.id)" />
       </div>
       <button v-if="lists[kind].page && !lists[kind].last" class="text-button load-more" :disabled="lists[kind].busy" @click="load(kind, true)">{{ lists[kind].busy ? '正在加载…' : '加载更多' }}</button>
     </section>

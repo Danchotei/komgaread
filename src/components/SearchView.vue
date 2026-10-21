@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref } from 'vue'
-import { searchState, type SearchSeries } from '../searchState'
+import { searchState } from '../searchState'
+import type { SeriesCardItem } from '../seriesState'
+import SeriesResultCard from './SeriesResultCard.vue'
+import BackToTop from './BackToTop.vue'
 const order = ref<'asc' | 'desc'>('desc')
 const keyword = ref('')
 defineProps<{ canBack?: boolean }>()
 defineEmits<{ back: [] }>()
-const results = ref<SearchSeries[]>([])
+const results = ref<SeriesCardItem[]>([])
 const total = ref(0)
 const last = ref(true)
 const loading = ref(false)
@@ -124,16 +127,14 @@ async function toggleOrder() {
     <p v-if="error" class="form-message" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">正在搜索…</p>
     <div v-if="searched" class="search-result-toolbar"><p class="search-count">{{ total ? `找到 ${total} 个系列` : loading ? '正在查询' : '没有找到相关系列' }}</p><button class="text-button" :disabled="loading" @click="toggleOrder">{{ order === 'desc' ? '从新到旧 ↓' : '从旧到新 ↑' }}</button></div>
-    <div class="search-results">
-      <a v-for="item in results" :key="item.id" class="book-link" :href="`#/series/${encodeURIComponent(item.id)}`"><div class="series-cover"><img v-if="!failed.has(item.id)" :src="item.thumbnailUrl" :alt="item.title" loading="lazy" @error="failed.add(item.id)" /><span v-else>暂无封面</span></div><h3>{{ item.title }}</h3><p class="search-card-genres" :title="item.genres?.join('、')">{{ item.genres?.join('、') || '暂无分类' }}</p><p class="search-card-meta"><span>{{ item.booksCount }} 章</span><time v-if="item.lastReleaseDate" :datetime="item.lastReleaseDate" title="最后一章发行日期">{{ item.lastReleaseDate }}</time><span v-else>日期未知</span></p></a>
+    <div class="series-results">
+      <SeriesResultCard v-for="item in results" :key="item.id" :item="item" :failed="failed.has(item.id)" @cover-error="failed.add(item.id)" />
     </div>
     <div v-if="results.length" class="search-load-status" role="status">
       <span v-if="loading">正在加载…</span>
       <button v-else-if="error && !last" class="text-button" @click="search(true)">重试加载</button>
       <span v-else-if="last">已显示全部结果</span>
     </div>
-    <button v-if="hasLoadedMore && awayFromTop" class="search-back-top" aria-label="返回顶部" title="返回顶部" @click="scrollContainer?.scrollTo({ top: 0, behavior: 'smooth' })">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14M12 20V9m-5 5 5-5 5 5" /></svg>
-    </button>
+    <BackToTop v-if="hasLoadedMore && awayFromTop" :target="scrollContainer" />
   </main>
 </template>

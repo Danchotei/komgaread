@@ -3,7 +3,11 @@ from time import time
 from secrets import token_urlsafe
 import os
 from urllib.parse import urlsplit
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
+from http.cookies import SimpleCookie
+from email.utils import parsedate_to_datetime
+import asyncio
 
 import httpx
 from dotenv import load_dotenv
@@ -13,19 +17,35 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from .session_store import SessionStore
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 KOMGA_URL = os.getenv("KOMGA_URL", "").rstrip("/")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 ALLOWED_ORIGINS = {value.strip() for value in (os.getenv("ALLOWED_ORIGINS") or "*").split(",") if value.strip()}
 COOKIE_NAME = "komgaread_session"
-SESSION_SECONDS = 8 * 60 * 60
+SESSION_SECONDS = 14 * 24 * 60 * 60
+REMEMBER_COOKIE = "komga-remember-me"
+session_context = ContextVar("session_id", default="")
+recovery_locks = [asyncio.Lock() for _ in range(32)]
 
 @asynccontextmanager
 async def lifespan(app):
     from .setup import prepare_setup
     prepare_setup(komga_url)
-    yield
+    sessions.prune(time())
+    async def cleanup_sessions():
+        while True:
+            await asyncio.sleep(3600)
+            from starlette.concurrency import run_in_threadpool
+            await run_in_threadpool(sessions.prune, time())
+    cleanup = asyncio.create_task(cleanup_sessions())
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup
 
 
 app = FastAPI(title="KomgaRead API", lifespan=lifespan)
@@ -40,8 +60,8 @@ async def validation_error(request: Request, exc: RequestValidationError):
     if request.url.path.startswith("/api/setup"):
         return JSONResponse({"detail": "请检查初始化密钥、Komga 地址、API 密钥和注册邀请码是否填写完整且格式正确"}, status_code=422)
     return await request_validation_exception_handler(request, exc)
-# 学习阶段用内存保存会话。重启会退出登录；只运行一个 worker。
-sessions: dict[str, tuple[str, float]] = {}
+# 凭据保存在 /data 映射下，更新容器、后端重启后仍可使用。
+sessions = SessionStore(Path(__file__).resolve().parents[1] / "data" / "sessions.sqlite3")
 
 
 class LoginInput(BaseModel):
@@ -75,7 +95,18 @@ async def protect_requests(request: Request, call_next):
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if not allowed_origin(request.headers.get("origin", "")):
             return JSONResponse({"detail": "请求来源未获允许"}, status_code=403)
-    response = await call_next(request)
+    session_id = request.cookies.get(COOKIE_NAME, "")
+    context = session_context.set(session_id)
+    try:
+        response = await call_next(request)
+    finally:
+        session_context.reset(context)
+    if response.status_code < 400 and getattr(request.state, "authenticated_sid", None) == session_id:
+        now = time()
+        if sessions.touch(session_id, now, now + SESSION_SECONDS):
+            set_session_cookie(response, session_id)
+    elif response.status_code == 401 and session_id and session_id not in sessions:
+        response.delete_cookie(COOKIE_NAME, path="/api", secure=COOKIE_SECURE, httponly=True, samesite="lax")
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -97,7 +128,29 @@ def komga_url():
     return configured_url(KOMGA_URL)
 
 
-async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
+def set_session_cookie(response, session_id):
+    response.set_cookie(COOKIE_NAME, session_id, max_age=SESSION_SECONDS, httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/api")
+
+
+def remember_credentials(response):
+    for header in response.headers.get_list("set-cookie"):
+        cookie = SimpleCookie()
+        cookie.load(header)
+        if REMEMBER_COOKIE in cookie:
+            value = cookie[REMEMBER_COOKIE]
+            expires = 0
+            try:
+                if value["max-age"]:
+                    expires = time() + int(value["max-age"])
+                elif value["expires"]:
+                    expires = parsedate_to_datetime(value["expires"]).timestamp()
+            except (ValueError, TypeError, OverflowError):
+                pass
+            return value.value, expires
+    return None, None
+
+
+async def send_komga(method: str, path: str, **kwargs):
     url = komga_url()
     if not url:
         raise HTTPException(503, "请先在启动页面配置 Komga 地址")
@@ -106,6 +159,56 @@ async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
             response = await client.request(method, f"{url}{path}", **kwargs)
     except httpx.RequestError:
         raise HTTPException(502, "无法连接 Komga，请检查地址或网络") from None
+    return response
+
+
+async def recover_komga_session(session_id, failed_token):
+    async with recovery_locks[hash(session_id) % len(recovery_locks)]:
+        entry = sessions.details(session_id)
+        if not entry or entry["expires"] <= time() or (entry["origin"] and entry["origin"] != komga_url()):
+            sessions.pop(session_id, None)
+            raise HTTPException(401, "登录已过期，请重新登录")
+        if entry["token"] != failed_token:
+            return entry["token"]
+        if not entry["remember"] or (entry["remember_expires"] and entry["remember_expires"] <= time()):
+            sessions.pop(session_id, None)
+            raise HTTPException(401, "登录已过期，请重新登录")
+        cookie = SimpleCookie()
+        cookie[REMEMBER_COOKIE] = entry["remember"]
+        response = await send_komga("GET", "/api/v2/users/me", headers={"X-Auth-Token": "", "Cookie": cookie.output(header="").strip()})
+        if response.status_code == 401:
+            sessions.pop(session_id, None)
+            raise HTTPException(401, "长期登录凭据已失效，请重新登录")
+        if not response.is_success:
+            raise HTTPException(502, "Komga 登录恢复暂时失败，请稍后重试")
+        user = public_user(response)
+        if entry["user_id"] and entry["user_id"] != user["id"]:
+            sessions.pop(session_id, None)
+            raise HTTPException(401, "登录身份发生变化，请重新登录")
+        token = response.headers.get("X-Auth-Token")
+        if not token:
+            raise HTTPException(502, "Komga 未返回恢复后的会话")
+        remember, expires = remember_credentials(response)
+        sessions.credentials(session_id, token, remember, expires)
+        if session_id not in sessions:
+            raise HTTPException(401, "登录已退出")
+        return token
+
+
+async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
+    session_id = session_context.get()
+    token = kwargs.get("headers", {}).get("X-Auth-Token")
+    entry = sessions.details(session_id) if session_id and token and "auth" not in kwargs and path != "/api/logout" else None
+    if entry:
+        kwargs["headers"] = {**kwargs["headers"], "X-Auth-Token": entry["token"]}
+        token = entry["token"]
+    response = await send_komga(method, path, **kwargs)
+    if response.status_code == 401 and entry:
+        token = await recover_komga_session(session_id, token)
+        kwargs["headers"] = {**kwargs["headers"], "X-Auth-Token": token}
+        response = await send_komga(method, path, **kwargs)
+        if response.status_code == 401:
+            sessions.pop(session_id, None)
     if response.status_code == 401:
         raise HTTPException(401, "账号或密码错误，或登录已过期")
     if response.status_code == 404:
@@ -133,25 +236,29 @@ def current_token(request: Request) -> str:
     if not entry or entry[1] <= time():
         sessions.pop(session_id, None)
         raise HTTPException(401, "请先登录")
+    details = sessions.details(session_id)
+    if details["origin"] and details["origin"] != komga_url():
+        sessions.pop(session_id, None)
+        raise HTTPException(401, "漫画服务器已更换，请重新登录")
+    request.state.authenticated_sid = session_id
     return entry[0]
 
 
 @app.post("/api/auth/login")
 async def login(data: LoginInput, request: Request, response: Response):
     # 密码仅用于此次验证，不写入磁盘或会话。
-    upstream = await komga_request("GET", "/api/v2/users/me", auth=httpx.BasicAuth(data.username, data.password), headers={"X-Auth-Token": ""})
+    upstream = await komga_request("GET", "/api/v2/users/me", auth=httpx.BasicAuth(data.username, data.password), headers={"X-Auth-Token": ""}, params={"remember-me": "true"})
     user = public_user(upstream)
     token = upstream.headers.get("X-Auth-Token")
     if not token:
         raise HTTPException(502, "Komga 未返回会话，请检查服务或反向代理配置")
     now = time()
-    for key in list(sessions):
-        if sessions[key][1] <= now:
-            sessions.pop(key, None)
+    sessions.prune(now)
     sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
     session_id = token_urlsafe(32)
-    sessions[session_id] = (token, now + SESSION_SECONDS)
-    response.set_cookie(COOKIE_NAME, session_id, max_age=SESSION_SECONDS, httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/api")
+    remember, remember_expires = remember_credentials(upstream)
+    sessions.create(session_id, token, now + SESSION_SECONDS, remember or "", remember_expires or 0, komga_url(), user["id"])
+    set_session_cookie(response, session_id)
     return user
 
 
@@ -169,10 +276,18 @@ async def me(request: Request):
 @app.post("/api/auth/logout", status_code=204)
 async def logout(request: Request):
     # 先撤销本站会话，即使 Komga 暂时离线也能退出。
-    entry = sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
+    session_id = request.cookies.get(COOKIE_NAME, "")
+    details = sessions.details(session_id)
+    entry = sessions.pop(session_id, None)
     if entry:
         try:
-            await komga_request("POST", "/api/logout", headers={"X-Auth-Token": entry[0]})
+            if not details["origin"] or details["origin"] == komga_url():
+                headers = {"X-Auth-Token": entry[0]}
+                if details["remember"]:
+                    cookie = SimpleCookie()
+                    cookie[REMEMBER_COOKIE] = details["remember"]
+                    headers["Cookie"] = cookie.output(header="").strip()
+                await komga_request("POST", "/api/logout", headers=headers)
         except HTTPException:
             pass
     response = Response(status_code=204)
@@ -180,7 +295,7 @@ async def logout(request: Request):
     return response
 
 # 随机抽取索引，再只读取对应系列，不将整个书库下载到网站。
-async def select_recommendations(request: Request):
+async def select_recommendations(request: Request, count: int = 4):
     import asyncio
     from random import sample
     from urllib.parse import quote
@@ -203,7 +318,7 @@ async def select_recommendations(request: Request):
 
     first = await read_page(0)
     total = first["totalElements"]
-    indices = sample(range(total), min(4, total))
+    indices = sample(range(total), min(count, total))
     pages = await asyncio.gather(*(read_page(index) if index else asyncio.sleep(0, result=first) for index in indices))
     result = []
     seen = set()
@@ -219,6 +334,7 @@ async def select_recommendations(request: Request):
                 result.append({
                     "id": series_id,
                     "title": series.get("metadata", {}).get("title") or series.get("name") or "未命名系列",
+                    "genres": series.get("metadata", {}).get("genres") or [],
                     "booksCount": series.get("booksCount", 0),
                     "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail",
                 })
@@ -229,6 +345,8 @@ async def select_recommendations(request: Request):
 
 @app.get("/api/series/recommendations")
 async def recommendations(request: Request):
+    import asyncio
+    from .search import fill_last_release
     from . import daily
     from urllib.parse import quote
     token = current_token(request)
@@ -236,20 +354,20 @@ async def recommendations(request: Request):
     user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
     async with daily.lock:
         day = daily.china_day()
-        items = daily.read(user["id"], day)
+        items = daily.read(user["id"], day, count=8)
         if items is None:
-            items = await select_recommendations(request)
-            daily.write(user["id"], day, items)
+            items = await select_recommendations(request, count=8)
+            daily.write(user["id"], day, items, count=8)
     # 每次仍检查权限，避免已删除或被撤销权限的系列继续展示。
     visible = []
     for item in items:
         try:
-            await komga_request("GET", f"/api/v1/series/{quote(item['id'], safe='')}", headers=headers)
-            visible.append(item)
+            data = read_json(await komga_request("GET", f"/api/v1/series/{quote(item['id'], safe='')}", headers=headers))
+            visible.append({**item, "genres": data.get("metadata", {}).get("genres") or []})
         except HTTPException as exc:
             if exc.status_code not in {403, 404}:
                 raise
-    return visible
+    return await fill_last_release(visible, komga_request, headers, read_json, asyncio.Semaphore(3))
 
 @app.get("/api/series/{series_id}/thumbnail")
 async def series_thumbnail(series_id: str, request: Request):
@@ -264,29 +382,32 @@ async def series_thumbnail(series_id: str, request: Request):
 
 @app.get("/api/series/recent")
 async def recent_series(request: Request):
+    import asyncio
+    from .search import fill_last_release
     from urllib.parse import quote
 
     token = current_token(request)
     upstream = await komga_request(
         "POST", "/api/v1/series/list", headers={"X-Auth-Token": token},
-        params={"page": 0, "size": 4, "sort": "createdDate,desc"}, json={},
+        params={"page": 0, "size": 8, "sort": "createdDate,desc"}, json={},
     )
     try:
         content = upstream.json()["content"]
         if not isinstance(content, list):
             raise ValueError
         result = []
-        for series in content[:4]:
+        for series in content[:8]:
             series_id = series["id"]
             if not isinstance(series_id, str):
                 raise ValueError
             result.append({
                 "id": series_id,
                 "title": series.get("metadata", {}).get("title") or series.get("name") or "未命名系列",
+                "genres": series.get("metadata", {}).get("genres") or [],
                 "booksCount": series.get("booksCount", 0),
                 "thumbnailUrl": f"/api/series/{quote(series_id, safe='')}/thumbnail",
             })
-        return result
+        return await fill_last_release(result, komga_request, {"X-Auth-Token": token}, read_json, asyncio.Semaphore(3))
     except (ValueError, KeyError, TypeError, AttributeError):
         raise HTTPException(502, "Komga 最近添加列表格式不正确") from None
 
@@ -347,6 +468,15 @@ async def book_image(book_id: str, request: Request, suffix: str, params=None):
     client = httpx.AsyncClient(timeout=30, follow_redirects=False)
     try:
         upstream = await client.send(client.build_request("GET", f"{url}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
+        if upstream.status_code == 401:
+            await upstream.aclose()
+            token = await recover_komga_session(request.cookies.get(COOKIE_NAME, ""), token)
+            upstream = await client.send(client.build_request("GET", f"{url}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
+            if upstream.status_code == 401:
+                sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
+    except HTTPException:
+        await client.aclose()
+        raise
     except httpx.RequestError:
         await client.aclose()
         raise HTTPException(502, "漫画图片连接失败") from None
@@ -420,4 +550,11 @@ from .personal import create_personal_router
 
 app.include_router(create_personal_router(
     lambda *args, **kwargs: komga_request(*args, **kwargs), current_token, public_user, read_json,
+))
+
+from .browse import create_browse_router
+
+app.include_router(create_browse_router(
+    lambda *args, **kwargs: komga_request(*args, **kwargs), current_token, read_json,
+    lambda request: select_recommendations(request, 12),
 ))

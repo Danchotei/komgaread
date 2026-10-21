@@ -6,7 +6,7 @@ from app import main
 
 @pytest.mark.parametrize('kind', ['title', 'author', 'genre', 'tag'])
 def test_search_series_only(monkeypatch, kind):
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     async def upstream(method, path, **kwargs):
         assert kwargs['headers']['X-Auth-Token'] == 'token'
         if method == 'GET':
@@ -35,7 +35,7 @@ def test_search_series_only(monkeypatch, kind):
 
 
 def test_empty_author_search(monkeypatch):
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     async def upstream(*args, **kwargs):
         return httpx.Response(200, json={'content': []})
     monkeypatch.setattr(main, 'komga_request', upstream)
@@ -50,7 +50,7 @@ def test_chinese_variants(monkeypatch, keyword, kind):
     variants = keyword_variants(keyword)
     assert {'学生', '學生'} <= set(variants)
     assert len(variants) == len(set(variants))
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     names = []
     async def upstream(method, path, **kwargs):
         if method == 'GET':
@@ -73,7 +73,7 @@ def test_chinese_variants(monkeypatch, keyword, kind):
 
 def test_combined_search_and_concurrency(monkeypatch):
     import asyncio
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     active = 0
     peak = 0
     queries = []
@@ -100,7 +100,7 @@ def test_combined_search_and_concurrency(monkeypatch):
 
 
 def test_combined_search_fails_explicitly(monkeypatch):
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     async def upstream(method, path, **kwargs):
         if path.endswith('authors'):
             raise main.HTTPException(502, 'Komga unavailable')
@@ -113,7 +113,7 @@ def test_combined_search_fails_explicitly(monkeypatch):
 
 @pytest.mark.parametrize('direction', ['asc', 'desc'])
 def test_sort_last_chapter_release_date(monkeypatch, direction):
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     async def upstream(method, path, **kwargs):
         if path == '/api/v1/series/list':
             assert kwargs['params']['unpaged'] == 'true'
@@ -139,7 +139,7 @@ def test_sort_last_chapter_release_date(monkeypatch, direction):
 
 @pytest.mark.parametrize('kind', ['author', 'genre', 'tag'])
 def test_metadata_exact_match(monkeypatch, kind):
-    monkeypatch.setattr(main, 'sessions', {'test': ('token', main.time() + 60)})
+    main.sessions.update({'test': ('token', main.time() + 60)})
     async def upstream(method, path, **kwargs):
         if method == 'GET':
             values = [{'name': name, 'role': 'writer'} for name in ['学生', '学生会', '學生']] if kind == 'author' else ['学生', '学生会', '學生']
