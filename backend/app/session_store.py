@@ -2,24 +2,38 @@
 import os
 import sqlite3
 from collections.abc import MutableMapping
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
+from threading import RLock
 
 
 class SessionStore(MutableMapping):
     def __init__(self, path):
         self.path = Path(path)
+        self._connection = None
+        self._lock = RLock()
 
     @contextmanager
     def connect(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
-        os.close(descriptor)
-        self.path.chmod(0o600)
-        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
-            db.row_factory = sqlite3.Row
-            db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires REAL NOT NULL, remember TEXT NOT NULL, remember_expires REAL NOT NULL, origin TEXT NOT NULL, user_id TEXT NOT NULL)")
-            yield db
+        # 单 worker 内复用连接；锁保护线程池中的续期与其他请求，事务仍逐次提交。
+        with self._lock:
+            if self._connection is None:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+                os.close(descriptor)
+                self.path.chmod(0o600)
+                db = sqlite3.connect(self.path, timeout=10, check_same_thread=False)
+                db.row_factory = sqlite3.Row
+                db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires REAL NOT NULL, remember TEXT NOT NULL, remember_expires REAL NOT NULL, origin TEXT NOT NULL, user_id TEXT NOT NULL)")
+                self._connection = db
+            with self._connection as db:
+                yield db
+
+    def close(self):
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
     def details(self, key):
         with self.connect() as db:

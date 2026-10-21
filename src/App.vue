@@ -8,6 +8,7 @@ import AppHeader from './components/AppHeader.vue'
 import { authRequest, type User } from './api/auth'
 import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
+import { clearDailyRecommendations } from './dailyRecommendations'
 import { navigateTo } from './navigation'
 
 const hash = ref(window.location.hash)
@@ -237,6 +238,7 @@ async function logout() {
   message.value = ''
   try {
     await authRequest<void>('logout', {})
+    clearDailyRecommendations()
     user.value = null
     resetSearchState()
   } catch (error) {

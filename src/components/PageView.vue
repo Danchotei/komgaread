@@ -27,6 +27,6 @@ const route = computed(() => {
     <BrowseView v-else-if="browseKind" :kind="browseKind" @back="emit('back')" />
     <CategoriesView v-else-if="pageHash === '#/categories'" />
     <ProfileView v-else-if="pageHash === '#/me'" :user="user" :logging-out="loggingOut" :message="message" @logout="emit('logout')" />
-    <HomeView v-else />
+    <HomeView v-else :user-id="user.id" />
   </div>
 </template>

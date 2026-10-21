@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from .session_store import SessionStore
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -37,7 +38,6 @@ async def lifespan(app):
     async def cleanup_sessions():
         while True:
             await asyncio.sleep(3600)
-            from starlette.concurrency import run_in_threadpool
             await run_in_threadpool(sessions.prune, time())
     cleanup = asyncio.create_task(cleanup_sessions())
     try:
@@ -46,6 +46,7 @@ async def lifespan(app):
         cleanup.cancel()
         with suppress(asyncio.CancelledError):
             await cleanup
+        sessions.close()
 
 
 app = FastAPI(title="KomgaRead API", lifespan=lifespan)
@@ -103,7 +104,7 @@ async def protect_requests(request: Request, call_next):
         session_context.reset(context)
     if response.status_code < 400 and getattr(request.state, "authenticated_sid", None) == session_id:
         now = time()
-        if sessions.touch(session_id, now, now + SESSION_SECONDS):
+        if await run_in_threadpool(sessions.touch, session_id, now, now + SESSION_SECONDS):
             set_session_cookie(response, session_id)
     elif response.status_code == 401 and session_id and session_id not in sessions:
         response.delete_cookie(COOKIE_NAME, path="/api", secure=COOKIE_SECURE, httponly=True, samesite="lax")
@@ -232,16 +233,15 @@ def public_user(response: httpx.Response) -> dict:
 
 def current_token(request: Request) -> str:
     session_id = request.cookies.get(COOKIE_NAME, "")
-    entry = sessions.get(session_id)
-    if not entry or entry[1] <= time():
+    entry = sessions.details(session_id)
+    if not entry or entry["expires"] <= time():
         sessions.pop(session_id, None)
         raise HTTPException(401, "请先登录")
-    details = sessions.details(session_id)
-    if details["origin"] and details["origin"] != komga_url():
+    if entry["origin"] and entry["origin"] != komga_url():
         sessions.pop(session_id, None)
         raise HTTPException(401, "漫画服务器已更换，请重新登录")
     request.state.authenticated_sid = session_id
-    return entry[0]
+    return entry["token"]
 
 
 @app.post("/api/auth/login")

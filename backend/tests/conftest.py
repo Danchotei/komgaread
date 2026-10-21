@@ -7,4 +7,8 @@ from app.session_store import SessionStore
 
 @pytest.fixture(autouse=True)
 def isolated_sessions(monkeypatch, tmp_path):
-    monkeypatch.setattr(main, "sessions", SessionStore(tmp_path / "sessions.sqlite3"))
+    store = SessionStore(tmp_path / "sessions.sqlite3")
+    monkeypatch.setattr(main, "sessions", store)
+    yield
+    main.sessions.close()
+    store.close()

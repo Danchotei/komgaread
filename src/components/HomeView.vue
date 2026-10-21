@@ -2,10 +2,9 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import SeriesResultCard from './SeriesResultCard.vue'
 import type { SeriesCardItem } from '../seriesState'
+import { chinaDay, readDailyRecommendations, saveDailyRecommendations } from '../dailyRecommendations'
 
-
-
-
+const props = defineProps<{ userId: string }>()
 const series = ref<SeriesCardItem[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -35,6 +34,14 @@ async function loadRecent() {
 
 async function loadRecommendations() {
   if (loading.value) return
+  const cached = readDailyRecommendations(props.userId)
+  if (cached !== null) {
+    series.value = cached
+    loadedDay = chinaDay()
+    error.value = ''
+    return
+  }
+  const requestDay = chinaDay()
   loading.value = true
   error.value = ''
   try {
@@ -44,6 +51,8 @@ async function loadRecommendations() {
       throw new Error(typeof detail?.detail === 'string' ? detail.detail : '推荐加载失败，请稍后重试')
     }
     series.value = await response.json() as SeriesCardItem[]
+    loadedDay = requestDay
+    saveDailyRecommendations(props.userId, requestDay, series.value)
     failedCovers.value = new Set()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '网络连接失败，请重试'
@@ -53,20 +62,17 @@ async function loadRecommendations() {
 }
 
 // UTC+8 无夏令时；按中国日期边界更新，休眠恢复时也检查是否跨日。
-const chinaDay = () => Math.floor((Date.now() + 8 * 3600000) / 86400000)
-let loadedDay = chinaDay()
+let loadedDay: number | null = null
 let midnightTimer: ReturnType<typeof setTimeout>
 function scheduleUpdate() {
   const nextMidnight = (chinaDay() + 1) * 86400000 - 8 * 3600000
   midnightTimer = setTimeout(() => {
-    loadedDay = chinaDay()
     void loadRecommendations()
     scheduleUpdate()
   }, nextMidnight - Date.now() + 100)
 }
 function checkDay() {
   if (!document.hidden && chinaDay() !== loadedDay) {
-    loadedDay = chinaDay()
     void loadRecommendations()
   }
 }
