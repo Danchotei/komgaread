@@ -1,6 +1,6 @@
 export interface SetupStatus { configured: boolean }
 export interface SetupCheck { address: 'primary'; reachable: boolean; message: string }
-export interface SetupInput { setup_key: string; primary_url: string }
+export interface SetupInput { setup_key: string; primary_url: string; api_key: string; invite_code: string }
 
 export async function setupRequest<T>(path = '', body?: SetupInput): Promise<T> {
   let response: Response

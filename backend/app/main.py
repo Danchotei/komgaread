@@ -9,6 +9,9 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -26,6 +29,17 @@ async def lifespan(app):
 
 
 app = FastAPI(title="KomgaRead API", lifespan=lifespan)
+
+# 初始化校验错误不回显输入，避免 API 密钥出现在响应和诊断记录中。
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path == "/api/auth/register":
+        return JSONResponse({"detail": "请填写有效邮箱和邀请码，密码至少 8 个字符且不超过 72 字节，两次密码须一致"}, status_code=422)
+    if request.url.path.startswith("/api/setup"):
+        return JSONResponse({"detail": "请检查初始化密钥、Komga 地址、API 密钥和注册邀请码是否填写完整且格式正确"}, status_code=422)
+    return await request_validation_exception_handler(request, exc)
 # 学习阶段用内存保存会话。重启会退出登录；只运行一个 worker。
 sessions: dict[str, tuple[str, float]] = {}
 
@@ -60,7 +74,6 @@ async def protect_requests(request: Request, call_next):
     # 来源策略与 CORS 保持一致；默认允许任意有效 HTTP(S) Origin。
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if not allowed_origin(request.headers.get("origin", "")):
-            from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "请求来源未获允许"}, status_code=403)
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
@@ -392,3 +405,7 @@ app.include_router(create_search_router(
 from .setup import create_setup_router
 
 app.include_router(create_setup_router(komga_url))
+
+from .registration import create_registration_router
+
+app.include_router(create_registration_router(komga_url))

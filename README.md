@@ -67,6 +67,7 @@ src/searchState.ts           新搜索的一次性关键词及筛选参数
 src/style.css                响应式布局和动画
 backend/app/main.py          应用入口、认证、系列及阅读接口
 backend/app/search.py        独立搜索接口，由 main.py 注册
+backend/app/registration.py  邮箱注册，使用后台管理员 API 密钥创建在线阅读账号
 backend/app/translate.py     OpenCC 关键词转换
 backend/app/daily.py         每日推荐存储及中国日期计算
 backend/tests/              后端自动化测试
@@ -98,7 +99,7 @@ HTTPS 部署设置 COOKIE_SECURE=true；ALLOWED_ORIGINS=* 默认允许任意 HTT
 
 - 会话仅在内存保存，8 小时过期，后端重启需要重新登录；当前只运行单 worker。
 - 每日推荐数据在本地保存在 backend/data；Docker 中通过符号链接写入 /data，持久化映射目标为 /data。
-- 首次启动可在网页填写 Komga 公网地址；初始化密钥默认自动生成并显示在启动日志，也支持手动 SETUP_KEY。配置保存到 /data/komga.json。详见 deploy/README.md。
+- 首次启动在网页填写 Komga 公网地址、管理员 API 密钥和注册邀请码，测试通过后保存到 /data/komga.json；初始化密钥默认自动生成并显示在启动日志，也支持手动 SETUP_KEY。详见 deploy/README.md。
 - 搜索日期排序需要读取每个匹配系列的末章日期，匹配较多时会增加等待；并发限制为 3。
 - 简繁转换不保证覆盖所有混写组合、同义词和日文异体字。
 - 图片不做额外压缩或后端缓存，沿用 Komga 返回内容。

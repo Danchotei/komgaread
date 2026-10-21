@@ -8,7 +8,8 @@ from app import main, setup
 
 ORIGIN = {"Origin": "http://127.0.0.1:5173"}
 KEY = "test-initialization-key-12345"
-BODY = {"setup_key": KEY, "primary_url": "https://public.example/komga/"}
+API_KEY = "test-komga-admin-key"
+BODY = {"setup_key": KEY, "primary_url": "https://public.example/komga/", "api_key": API_KEY, "invite_code": "test-invite"}
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,13 @@ def isolated_config(monkeypatch, tmp_path):
     main.sessions.clear()
 
 
+def admin_response(request):
+    assert request.headers.get("X-API-Key") == API_KEY
+    if request.url.path.endswith("/users"):
+        return httpx.Response(200, json=[])
+    return httpx.Response(200, json={"id": "admin", "email": "admin@example.com"})
+
+
 def mock_network(monkeypatch, handler):
     original = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
@@ -31,7 +39,7 @@ def test_save_persist_and_close_setup(monkeypatch):
 
     def handler(request):
         calls.append(str(request.url))
-        return httpx.Response(401)
+        return admin_response(request)
 
     mock_network(monkeypatch, handler)
     client = TestClient(main.app)
@@ -42,7 +50,11 @@ def test_save_persist_and_close_setup(monkeypatch):
     assert response.status_code == 200
     assert all(item["reachable"] for item in response.json()["checks"])
     saved = json.loads(setup.CONFIG_FILE.read_text())
-    assert saved == {"primary_url": "https://public.example/komga"}
+    assert saved == {"primary_url": "https://public.example/komga", "api_key": API_KEY, "invite_code": "test-invite"}
+    assert API_KEY not in response.text
+    assert API_KEY not in client.get("/api/setup").text
+    assert "test-invite" not in response.text
+    assert "test-invite" not in client.get("/api/setup").text
     assert KEY not in setup.CONFIG_FILE.read_text()
     # 新客户端重新读取落盘数据，不依赖初始化请求中的内存状态。
     assert TestClient(main.app).get("/api/setup").json()["configured"] is True
@@ -69,7 +81,7 @@ def test_setup_key_and_origin_before_network(monkeypatch):
 
 def test_automatic_key_persist_login_and_no_public_leak(monkeypatch, caplog):
     monkeypatch.delenv("SETUP_KEY")
-    mock_network(monkeypatch, lambda request: httpx.Response(401))
+    mock_network(monkeypatch, admin_response)
     with TestClient(main.app) as client:
         key_file = setup.CONFIG_FILE.parent / "setup.key"
         key = key_file.read_text()
@@ -135,7 +147,7 @@ def test_legacy_env_and_corrupt_config(monkeypatch):
 
 
 def test_storage_error(monkeypatch):
-    mock_network(monkeypatch, lambda request: httpx.Response(401))
+    mock_network(monkeypatch, admin_response)
     setup.CONFIG_FILE.parent.write_text("not a directory")
     assert TestClient(main.app).post("/api/setup", headers=ORIGIN, json=BODY).status_code == 503
 
@@ -159,11 +171,12 @@ def test_single_address_errors(monkeypatch, failure, expected):
     assert calls == ["primary.example"]
 
 
-def test_old_config_uses_only_primary(monkeypatch):
+@pytest.mark.parametrize("api_key", ["", API_KEY])
+def test_old_config_uses_only_primary(monkeypatch, api_key):
     monkeypatch.setattr(main, "KOMGA_URL", "https://primary.example")
     # 已有双地址配置无需重新初始化，但只使用原先的主要地址。
     setup.CONFIG_FILE.parent.mkdir()
-    setup.CONFIG_FILE.write_text(json.dumps({"primary_url": "https://public.example", "backup_url": "http://unused.example"}))
+    setup.CONFIG_FILE.write_text(json.dumps({"primary_url": "https://public.example", "backup_url": "http://unused.example", "api_key": api_key, "invite_code": "preserved-invite"}))
     calls = []
 
     def handler(request):
@@ -178,4 +191,36 @@ def test_old_config_uses_only_primary(monkeypatch):
     response = client.get("/api/books/b1/pages/1")
     assert response.status_code == 200 and response.content == b"image"
     assert calls == ["public.example"]
-    assert json.loads(setup.CONFIG_FILE.read_text()) == {"primary_url": "https://public.example"}
+    expected = {"primary_url": "https://public.example", "invite_code": "preserved-invite"}
+    if api_key:
+        expected["api_key"] = api_key
+    assert json.loads(setup.CONFIG_FILE.read_text()) == expected
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_invalid_or_non_admin_key_not_saved(monkeypatch, status):
+    def handler(request):
+        assert request.headers["X-API-Key"] == API_KEY
+        if status == 403 and request.url.path.endswith("/me"):
+            return admin_response(request)
+        return httpx.Response(status)
+    mock_network(monkeypatch, handler)
+    client = TestClient(main.app)
+    result = client.post("/api/setup/test", headers=ORIGIN, json=BODY)
+    assert result.json()["checks"][0]["reachable"] is False
+    assert API_KEY not in result.text
+    assert client.post("/api/setup", headers=ORIGIN, json=BODY).status_code == 422
+    assert not setup.CONFIG_FILE.exists()
+
+
+@pytest.mark.parametrize("api_key", [None, "", "   ", "secret with spaces", "s" * 4097])
+def test_api_key_required_and_validation_redacted(api_key):
+    body = {**BODY, "api_key": api_key}
+    if api_key is None:
+        del body["api_key"]
+    response = TestClient(main.app).post("/api/setup", headers=ORIGIN, json=body)
+    assert response.status_code == 422
+    assert "input" not in response.json()
+    if api_key and api_key.strip():
+        assert api_key not in response.text
+    assert not setup.CONFIG_FILE.exists()
