@@ -8,8 +8,10 @@ from contextvars import ContextVar
 from http.cookies import SimpleCookie
 from email.utils import parsedate_to_datetime
 import asyncio
+import base64
+from tempfile import TemporaryDirectory
 
-from jmcomic import JmOption
+from jmcomic import JmOption, JmModuleConfig
 
 import httpx
 from dotenv import load_dotenv
@@ -258,16 +260,34 @@ class ResourceLookupInput(BaseModel):
     jmid: str = Field(pattern=r"^[0-9]{1,20}$")
 
 
-@app.post("/api/resource/lookup", status_code=204)
-async def lookup_resource(data: ResourceLookupInput, request: Request):
+@app.post("/api/resource/lookup")
+def lookup_resource(data: ResourceLookupInput, request: Request):
     current_token(request)
     jmid = data.jmid
-    client = JmOption.default().new_jm_client()
-    cover_dir = Path(__file__).resolve().parents[1] / 'data' / 'jm'
-    cover_dir.mkdir(parents=True, exist_ok=True)
-    cover_path = cover_dir / f'{jmid}.png'
-    client.download_album_cover(jmid, str(cover_path))
-    return Response(status_code=204)
+    try:
+        client = JmOption.default().new_jm_client()
+        album = client.get_album_detail(jmid)
+        domain = JmModuleConfig.get_html_domain()
+    except Exception:
+        raise HTTPException(502, "获取漫画信息失败，请稍后重试") from None
+    cover_url = None
+    try:
+        # 下载只在独立临时目录中进行，成功或失败都会删除文件。
+        with TemporaryDirectory(prefix='komgaread-jm-') as temporary:
+            cover_path = Path(temporary) / 'cover.png'
+            client.download_album_cover(jmid, str(cover_path))
+            content = base64.b64encode(cover_path.read_bytes()).decode('ascii')
+            cover_url = f'data:image/png;base64,{content}'
+    except Exception:
+        # 封面是可选信息，下载失败仍返回已经获取的详情。
+        pass
+    return {
+        'title': album.title,
+        'author': album.author,
+        'tags': album.tags,
+        'link': f'https://{domain}/album/{jmid}',
+        'cover_url': cover_url
+    }
 
 
 @app.post("/api/auth/login")

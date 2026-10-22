@@ -18,11 +18,36 @@ async function recordVisit() {
     if (!response.ok) throw new Error('浏览记录未保存')
   } catch { historyError.value = '浏览记录未保存，可点击重试' }
 }
-onActivated(() => { if (series.value) void recordVisit() })
+onActivated(() => {
+  if (series.value) {
+    void recordVisit()
+    void refreshProgress()
+  }
+})
 const loading = ref(false)
 const last = ref(false)
 const page = ref(0)
 const order = ref<'asc' | 'desc'>('asc')
+const progressError = ref('')
+async function refreshProgress() {
+  if (loading.value || !books.value.length) return
+  loading.value = true
+  progressError.value = ''
+  try {
+    const progress = new Map<string, ChapterInfo['readProgress']>()
+    // 只刷新已加载页的进度，保留列表、排序和翻页位置。
+    for (let index = 0; index < page.value; index++) {
+      const data = await getJson<{ items: ChapterInfo[]; last: boolean }>(`/api/series/${encodeURIComponent(props.seriesId)}/books?page=${index}&order=${order.value}`)
+      for (const book of data.items) progress.set(book.id, book.readProgress)
+      if (data.last) break
+    }
+    for (const book of books.value) {
+      if (progress.has(book.id)) book.readProgress = progress.get(book.id)!
+    }
+  } catch (cause) {
+    progressError.value = cause instanceof Error ? cause.message : '阅读进度刷新失败'
+  } finally { loading.value = false }
+}
 async function changeOrder() {
   if (loading.value) return
   const nextOrder = order.value === 'asc' ? 'desc' : 'asc'
@@ -74,6 +99,7 @@ onMounted(load)
     <button class="text-button detail-back" @click="$emit('back')">← 返回</button>
     <p v-if="error" class="form-message" role="alert">{{ error }} <button class="text-button" @click="series ? loadBooks() : load()">重试</button></p>
     <p v-if="historyError" class="personal-hint" role="status">{{ historyError }} <button class="text-button" @click="recordVisit">重试</button></p>
+    <p v-if="progressError" class="personal-hint" role="status">{{ progressError }} <button class="text-button" :disabled="loading" @click="refreshProgress">重试刷新进度</button></p>
     <p v-if="!series && !error" role="status">正在加载…</p>
     <template v-if="series">
       <section class="series-info">
