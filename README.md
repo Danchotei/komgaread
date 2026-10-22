@@ -72,7 +72,7 @@ backend/app/search.py        独立搜索接口，由 main.py 注册
 backend/app/registration.py  邮箱注册，使用后台管理员 API 密钥创建在线阅读账号
 backend/app/reactions.py     系列点赞、收藏及全体用户计数，持久化到 SQLite
 backend/app/personal.py      用户浏览历史（最多 50 条）和收藏列表，使用递增序号排序
-backend/app/session_store.py SQLite 登录持久化；14 天闲置过期，Komga Remember Me 自动恢复
+backend/app/session_store.py SQLite 登录持久化；打开／刷新后的登录验证续期 14 天，Komga Remember Me 自动恢复
 backend/app/browse.py        分类页最近更新（最多 30 个）、随机 12 个和按名称浏览所有系列
 backend/app/translate.py     OpenCC 关键词转换
 backend/app/daily.py         每日推荐存储及中国日期计算
@@ -103,9 +103,10 @@ HTTPS 部署设置 COOKIE_SECURE=true；ALLOWED_ORIGINS=* 默认允许任意 HTT
 
 ## 数据与限制
 
-- 会话持久化保存，成功的已认证访问自动续期 14 天，连续 14 天不访问后失效；支持 Komga remember-me 恢复，当前只运行单 worker。
+- 会话持久化保存，手动登录及打开／刷新网站后的登录验证成功时续期 14 天；普通接口和图片请求不续期。距上次成功登录验证超过 14 天需手动登录；支持 Komga remember-me 恢复，当前只运行单 worker。
 - 每日推荐数据在本地保存在 backend/data；Docker 中通过符号链接写入 /data，持久化映射目标为 /data。
 - 首次启动在网页填写 Komga 公网地址、管理员 API 密钥和注册邀请码，测试通过后保存到 /data/komga.json；初始化密钥默认自动生成并显示在启动日志，也支持手动 SETUP_KEY。详见 deploy/README.md。
+- 配置在启动时缓存到内存；网页保存后同步更新，手动修改 komga.json 后需重启后端生效。
 - 搜索日期排序需要读取每个匹配系列的末章日期，匹配较多时会增加等待；并发限制为 3。
 - 简繁转换不保证覆盖所有混写组合、同义词和日文异体字。
 - 图片不做额外压缩或后端缓存，沿用 Komga 返回内容。

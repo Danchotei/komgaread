@@ -5,7 +5,7 @@ import BottomNav from './components/BottomNav.vue'
 import PageView from './components/PageView.vue'
 import SetupView from './components/SetupView.vue'
 import AppHeader from './components/AppHeader.vue'
-import { authRequest, type User } from './api/auth'
+import { authRequest, AuthRequestError, type User } from './api/auth'
 import { setupRequest, type SetupStatus } from './api/setup'
 import { resetSearchState } from './searchState'
 import { clearDailyRecommendations } from './dailyRecommendations'
@@ -36,7 +36,7 @@ function finishTransition() {
 function pageLevel(value: string) {
   if (value.startsWith('#/books/')) return 3
   if (value.startsWith('#/series/')) return 2
-  if (value === '#/search' || value.startsWith('#/browse/')) return 1
+  if (value === '#/search' || value === '#/jm-search' || value.startsWith('#/browse/')) return 1
   return 0
 }
 let nextKey = 1
@@ -133,10 +133,11 @@ function updateRoute(event?: Event) {
   else if (fromLevel < toLevel) tabTransition.value = 'series-slide'
   // 点击系列封面弹出详情，返回时收起详情；搜索入口沿用同一套效果。
   if (target.startsWith('#/series/') && !returning) tabTransition.value = 'card-open'
-  if (target === '#/search') tabTransition.value = 'card-open'
+  if (target === '#/search' || (target === '#/jm-search' && !returning)) tabTransition.value = 'card-open'
   if (target.startsWith('#/browse/') && !returning) tabTransition.value = 'card-open'
   if (hash.value.startsWith('#/series/') && returning) tabTransition.value = 'card-close'
   if (hash.value === '#/search' && (toLevel === 0 || returning)) tabTransition.value = 'card-close'
+  if (hash.value === '#/jm-search' && returning) tabTransition.value = 'card-close'
   if (hash.value.startsWith('#/browse/') && returning) tabTransition.value = 'card-close'
   // 系统返回手势／浏览器前后退已有原生过渡，不叠加网页动画。
   if (browserNavigation) tabTransition.value = 'page-static'
@@ -223,7 +224,11 @@ async function checkStartup() {
     setupStatus.value = await setupRequest<SetupStatus>()
     if (setupStatus.value.configured) {
       try { user.value = await authRequest<User>('me') }
-      catch { user.value = null; resetSearchState() }
+      catch (cause) {
+        if (!(cause instanceof AuthRequestError) || cause.status !== 401) throw cause
+        user.value = null
+        resetSearchState()
+      }
     }
   } catch (cause) {
     startupError.value = cause instanceof Error ? cause.message : '启动检查失败'
@@ -264,5 +269,5 @@ async function logout() {
     </Transition>
     <LoginView v-else @authenticated="handleLogin" />
   </div>
-  <BottomNav v-if="user && !checking && !startupError && !route" :active="hash === '#/search' ? undefined : activeTab" @navigate="navigateRoot" />
+  <BottomNav v-if="user && !checking && !startupError && !route" :active="hash === '#/search' || hash === '#/jm-search' ? undefined : activeTab" @navigate="navigateRoot" />
 </template>

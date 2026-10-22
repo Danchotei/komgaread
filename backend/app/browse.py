@@ -1,11 +1,10 @@
 """分类页的最近发行、随机系列和名称浏览。"""
 import asyncio
 from typing import Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request
 
-from .search import order_by_last_release
+from .search import order_by_last_release, series_card
 
 
 def create_browse_router(komga_request, current_token, read_json, random_series):
@@ -32,6 +31,6 @@ def create_browse_router(komga_request, current_token, read_json, random_series)
         else:
             # 只补齐当前页日期，不改变按名称排列的顺序。
             await order_by_last_release(content, "desc", komga_request, headers, read_json, limiter)
-        return {"items": [{"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "genres": item.get("metadata", {}).get("genres") or [], "booksCount": item.get("booksCount", 0), "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"} for item in content], "last": True if kind == "latest" else data["last"]}
+        return {"items": [series_card(item) for item in content], "last": True if kind == "latest" else data["last"]}
 
     return router

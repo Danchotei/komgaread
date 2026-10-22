@@ -18,6 +18,7 @@ const awayFromTop = ref(false)
 const error = ref('')
 const failed = ref(new Set<string>())
 let page = 0
+let snapshot = ''
 let submitted = ''
 let filterType = 'all'
 let exact = false
@@ -80,6 +81,7 @@ async function search(more = false, resort = false, manual = false) {
     if (!resort) submitted = keyword.value.trim()
     hasLoadedMore.value = false
     page = 0
+    snapshot = ''
     if (!resort) results.value = []
     failed.value = new Set()
     searched.value = true
@@ -88,10 +90,12 @@ async function search(more = false, resort = false, manual = false) {
   error.value = ''
   try {
     const params = new URLSearchParams({ q: submitted, page: String(page), order: order.value, type: filterType, exact: String(exact) })
+    params.set('snapshot', snapshot || 'new')
     const response = await fetch(`/api/search?${params}`, { signal: controller.signal, credentials: 'same-origin' })
     const data = await response.json()
     if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '搜索失败')
     if (current !== version) return
+    snapshot = data.snapshot || ''
     if (more) results.value.push(...data.items)
     else results.value = data.items
     total.value = data.total
@@ -120,7 +124,10 @@ async function toggleOrder() {
 
 <template>
   <main ref="scrollContainer" class="tab-page search-page" @scroll.passive="handleScroll">
-    <button v-if="canBack" class="text-button return-series" @click="$emit('back')">← 返回</button>
+    <div class="search-page-actions">
+      <button v-if="canBack" class="text-button" @click="$emit('back')">← 返回</button>
+      <a class="text-button jm-search-link" href="#/jm-search">JM搜索</a>
+    </div>
     <form class="search-form" @submit.prevent="search(false, false, true)">
       <div class="search-input-row"><input v-model="keyword" aria-label="搜索关键词" placeholder="搜索标题、作者、分类或标签" maxlength="200" required /><button class="text-button" type="submit">搜索</button></div>
     </form>

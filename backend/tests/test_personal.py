@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -40,6 +41,33 @@ def client_for(user):
 def ids(kind, user="a"):
     result, last = personal.stored_list(user, kind, 0)
     return result
+
+
+def test_read_lists_while_another_connection_is_writing():
+    personal.record_visit("a", "saved")
+    reactions.reaction_state("a", "saved", "favorite", True)
+    personal.profile_name("a", "reader")
+    # 未提交的写事务占用写锁，但不能阻止其他连接读取已提交的数据。
+    with sqlite3.connect(reactions.STORE) as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT INTO browsing_history VALUES ('a','pending',999)")
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(lambda: (
+                ids("history"), ids("favorites"), personal.favorite_series_ids("a"),
+                personal.profile_name("a"), reactions.reaction_state("a", "saved"),
+            ))
+            try:
+                history, favorites, favorite_ids, name, state = future.result(timeout=2)
+                assert history == favorites == favorite_ids == ["saved"]
+                assert name == "reader" and state["favorited"]
+            finally:
+                writer.rollback()
+
+
+def test_read_connection_rejects_accidental_writes():
+    with reactions.open_store() as db:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            db.execute("DELETE FROM browsing_history")
 
 
 def test_history_moves_duplicates_to_front_and_limits_per_user():

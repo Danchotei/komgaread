@@ -4,11 +4,22 @@
 **/.venv
 **/__pycache__
 **/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/htmlcov
+**/.coverage
+**/.coverage.*
 **/*.pyc
+**/*.pyo
 **/*.log
 **/*.local
 **/.env
 **/.env.*
-**/data
+# 仅排除后端运行数据，避免误伤源码中的 data 目录。
+/backend/data
+.vscode
+.idea
+**/.DS_Store
 dist
+dist-ssr
 *.tsbuildinfo

@@ -1,16 +1,32 @@
 """系列搜索路由。共享能力由入口传入，不反向导入 main，避免循环引用。"""
 import asyncio
 import sqlite3
+import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
+from . import release_cache, search_snapshots
+
+
+def series_card(item):
+    return {"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "booksCount": item.get("booksCount", 0), "genres": item.get("metadata", {}).get("genres") or [], "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"}
 
 
 async def fill_last_release(items, komga_request, headers, read_json, limiter):
     async def last_release(item):
+        cache = release_cache.service
+        if cache is not None and cache.connected:
+            try:
+                item["lastReleaseDate"] = await cache.refresh(item["id"])
+                return item
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, sqlite3.Error, OSError):
+                # 管理连接故障时仍按当前用户权限查询，不让缓存故障中断阅读。
+                pass
         async with limiter:
             chapters = read_json(await komga_request("POST", "/api/v1/books/list", headers=headers,
                 params={"page": 0, "size": 1, "sort": "metadata.numberSort,desc"},
@@ -42,13 +58,22 @@ def create_search_router(
     limiter = asyncio.Semaphore(3)
 
     @router.get("/search")
-    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None, exact: bool = False, favorites: bool = False):
-        from urllib.parse import quote
+    async def search_series(request: Request, q: str = "", type: str = "all", page: int = 0, order: str | None = None, exact: bool = False, favorites: bool = False, snapshot: str = ""):
         if type not in {"all", "title", "author", "genre", "tag"} or page < 0 or not q.strip() or len(q) > 200:
             raise HTTPException(422, "请选择搜索类型并输入 1–200 字的关键词")
         if order not in {None, "asc", "desc"}:
             raise HTTPException(422, "排序方式必须为 asc 或 desc")
         headers = {"X-Auth-Token": current_token(request)}
+        cache = release_cache.service
+        revision = cache.revision if cache else 0
+        signature = (q.strip(), type, order, exact, favorites)
+        scope = None
+        if snapshot:
+            if not order or len(snapshot) > 128 or (snapshot == "new" and page != 0):
+                raise HTTPException(422, "搜索快照参数不正确")
+            # 每页验证实际 Komga 身份及当前权限，防止权限撤销后继续使用旧快照。
+            identity = read_json(await komga_request("GET", "/api/v2/users/me", headers=headers))
+            scope = hashlib.sha256((request.cookies.get("komgaread_session", headers["X-Auth-Token"]) + json.dumps(identity, sort_keys=True)).encode()).hexdigest()
         favorite_ids = None
         if favorites:
             from .personal import favorite_series_ids
@@ -61,6 +86,11 @@ def create_search_router(
                 raise HTTPException(503, "收藏暂时不可用，请重试") from None
             if not favorite_ids:
                 return {"items": [], "last": True, "total": 0}
+        if favorites:
+            signature += (tuple(favorite_ids),)
+        if snapshot and snapshot != "new":
+            items = search_snapshots.read(snapshot, scope, signature, revision)
+            return {"items": items[page * 16:(page + 1) * 16], "total": len(items), "last": (page + 1) * 16 >= len(items), "snapshot": snapshot}
         keyword = q.strip()
         from .translate import keyword_variants
         variants = keyword_variants(keyword)
@@ -116,7 +146,13 @@ def create_search_router(
         if order:
             # 全部匹配系列先排序，再切分页，不能只对当前 16 项排序。
             ordered = await order_by_last_release(data["content"], order, komga_request, headers, read_json, limiter)
+            if snapshot == "new":
+                if revision != (cache.revision if cache else 0):
+                    raise HTTPException(409, "书库正在更新，请重新搜索")
+                items = [series_card(item) for item in ordered]
+                key = search_snapshots.save(scope, signature, revision, items)
+                return {"items": items[:16], "total": len(items), "last": len(items) <= 16, "snapshot": key}
             data = {"content": ordered[page * 16:(page + 1) * 16], "totalElements": len(ordered), "last": (page + 1) * 16 >= len(ordered)}
-        return {"items": [{"id": item["id"], "title": item.get("metadata", {}).get("title") or item.get("name") or "未命名系列", "booksCount": item.get("booksCount", 0), "genres": item.get("metadata", {}).get("genres") or [], "lastReleaseDate": item.get("lastReleaseDate"), "thumbnailUrl": f"/api/series/{quote(item['id'], safe='')}/thumbnail"} for item in data["content"]], "last": data["last"], "total": data["totalElements"]}
+        return {"items": [series_card(item) for item in data["content"]], "last": data["last"], "total": data["totalElements"]}
 
     return router

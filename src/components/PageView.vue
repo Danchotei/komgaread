@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import HomeView from './HomeView.vue'
 import SearchView from './SearchView.vue'
+import JmSearchView from './JmSearchView.vue'
 import SeriesView from './SeriesView.vue'
 import ReaderView from './ReaderView.vue'
 import CategoriesView from './CategoriesView.vue'
@@ -24,6 +25,7 @@ const route = computed(() => {
     <SeriesView v-if="route?.type === 'series'" :series-id="route.id" @back="emit('back')" />
     <ReaderView v-else-if="route?.type === 'books'" :book-id="route.id" />
     <SearchView v-else-if="pageHash === '#/search'" :can-back="canBack" @back="emit('back')" />
+    <JmSearchView v-else-if="pageHash === '#/jm-search'" @back="emit('back')" />
     <BrowseView v-else-if="browseKind" :kind="browseKind" @back="emit('back')" />
     <CategoriesView v-else-if="pageHash === '#/categories'" />
     <ProfileView v-else-if="pageHash === '#/me'" :user="user" :logging-out="loggingOut" :message="message" @logout="emit('logout')" />

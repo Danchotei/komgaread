@@ -1,11 +1,22 @@
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from weakref import WeakValueDictionary
 
 STORE = Path(__file__).resolve().parents[1] / 'data' / 'daily.sqlite3'
-lock = asyncio.Lock()
+_locks = WeakValueDictionary()
+
+
+def generation_lock(user):
+    # 只合并同一账号的生成任务；无人使用的锁自动回收。
+    lock = _locks.get(user)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[user] = lock
+    return lock
 
 
 def china_day():
@@ -14,7 +25,7 @@ def china_day():
 
 def read(user, day, count=4):
     STORE.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(STORE) as db:
+    with closing(sqlite3.connect(STORE)) as db, db:
         db.execute('CREATE TABLE IF NOT EXISTS daily (user TEXT, day TEXT, items TEXT, requested_count INTEGER NOT NULL DEFAULT 4, PRIMARY KEY(user, day))')
         if 'requested_count' not in {row[1] for row in db.execute('PRAGMA table_info(daily)')}:
             db.execute('ALTER TABLE daily ADD COLUMN requested_count INTEGER NOT NULL DEFAULT 4')
@@ -24,6 +35,6 @@ def read(user, day, count=4):
 
 
 def write(user, day, items, count=4):
-    with sqlite3.connect(STORE) as db:
+    with closing(sqlite3.connect(STORE)) as db, db:
         db.execute('INSERT OR REPLACE INTO daily(user,day,items,requested_count) VALUES (?, ?, ?, ?)', (user, day, json.dumps(items), count))
         db.execute('DELETE FROM daily WHERE day < ?', (day,))

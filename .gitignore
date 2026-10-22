@@ -38,6 +38,7 @@ __pycache__/
 .coverage.*
 htmlcov/
 *.pyc
+*.pyo
 
 # 运行数据：配置、登录凭据、推荐和个人记录数据库及 SQLite 临时文件。
 backend/data/

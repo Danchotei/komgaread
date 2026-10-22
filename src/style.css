@@ -317,7 +317,8 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 }
 
 .search-form { margin: 20px 0; }
-.return-series { margin-top: 16px; }
+.search-page-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+.jm-search-link { margin-left: auto; text-decoration: none; }
 /* 搜索页独立滚动，不受窗口滚动位置影响。 */
 .tab-page.search-page, .tab-page.browse-page { height: calc(100dvh - var(--app-header-height)); min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .browse-heading { display: flex; gap: 16px; align-items: center; padding-top: 16px; }

@@ -4,12 +4,50 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main, setup
+from app import main, setup, registration
 
 ORIGIN = {"Origin": "http://127.0.0.1:5173"}
 KEY = "test-initialization-key-12345"
 API_KEY = "test-komga-admin-key"
 BODY = {"setup_key": KEY, "primary_url": "https://public.example/komga/", "api_key": API_KEY, "invite_code": "test-invite"}
+
+
+def test_cached_config_avoids_disk_reads_and_manual_edits_need_reload(monkeypatch):
+    setup.write_config("https://first.example", API_KEY, "first-invite")
+    setup.reset_config_cache()
+    assert main.komga_url() == "https://first.example"
+    setup.CONFIG_FILE.write_text(json.dumps({"primary_url": "https://second.example", "api_key": "second", "invite_code": "second-invite"}))
+    with monkeypatch.context() as patch:
+        patch.setattr(type(setup.CONFIG_FILE), "read_text", lambda *a, **k: pytest.fail("缓存命中时不应读盘"))
+        patch.setattr(type(setup.CONFIG_FILE), "exists", lambda *a, **k: pytest.fail("缓存命中时不应检查文件"))
+        assert main.komga_url() == "https://first.example"
+        assert registration.registration_credentials() == (API_KEY, "first-invite")
+    setup.reset_config_cache()
+    assert main.komga_url() == "https://second.example"
+    assert registration.registration_credentials() == ("second", "second-invite")
+
+
+def test_save_refreshes_cache_only_after_success(monkeypatch):
+    setup.write_config("https://first.example", API_KEY, "first-invite")
+    setup.write_config("https://second.example", "second", "second-invite")
+    assert main.komga_url() == "https://second.example"
+    def fail(*args, **kwargs):
+        raise OSError("write failed")
+    monkeypatch.setattr(type(setup.CONFIG_FILE), "replace", fail)
+    with pytest.raises(main.HTTPException):
+        setup.write_config("https://third.example", "third", "third-invite")
+    assert main.komga_url() == "https://second.example"
+    assert registration.registration_credentials() == ("second", "second-invite")
+
+
+def test_missing_file_is_cached_until_setup_saves(monkeypatch):
+    assert main.komga_url() == ""
+    with monkeypatch.context() as patch:
+        patch.setattr(type(setup.CONFIG_FILE), "read_text", lambda *a, **k: pytest.fail("未配置状态也应缓存"))
+        assert main.komga_url() == ""
+        assert registration.registration_credentials() == ("", "")
+    setup.write_config("https://new.example", API_KEY, "test-invite")
+    assert main.komga_url() == "https://new.example"
 
 
 @pytest.fixture(autouse=True)
@@ -56,8 +94,9 @@ def test_save_persist_and_close_setup(monkeypatch):
     assert "test-invite" not in response.text
     assert "test-invite" not in client.get("/api/setup").text
     assert KEY not in setup.CONFIG_FILE.read_text()
-    # 新客户端重新读取落盘数据，不依赖初始化请求中的内存状态。
+    # 新客户端复用已保存的配置；清空缓存模拟重启后仍可读取落盘数据。
     assert TestClient(main.app).get("/api/setup").json()["configured"] is True
+    setup.reset_config_cache()
     assert main.komga_url() == saved["primary_url"]
     count = len(calls)
     assert client.post("/api/setup", headers=ORIGIN, json=BODY).status_code == 409
@@ -143,6 +182,7 @@ def test_legacy_env_and_corrupt_config(monkeypatch):
     assert client.post("/api/setup", headers=ORIGIN, json=BODY).status_code == 409
     setup.CONFIG_FILE.parent.mkdir()
     setup.CONFIG_FILE.write_text("broken")
+    setup.reset_config_cache()  # 手动修改文件在下次启动重新加载。
     assert client.get("/api/setup").status_code == 503
 
 

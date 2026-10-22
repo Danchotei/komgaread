@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from secrets import compare_digest, token_urlsafe
 import tempfile
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import httpx
@@ -14,6 +15,22 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 
 CONFIG_FILE = Path(__file__).resolve().parents[1] / "data" / "komga.json"
 setup_lock = asyncio.Lock()
+
+
+@dataclass(frozen=True)
+class KomgaConfig:
+    primary_url: str = ""
+    api_key: str = field(default="", repr=False)
+    invite_code: str = field(default="", repr=False)
+
+
+_config: KomgaConfig | None = None
+
+
+def reset_config_cache():
+    """启动时重新加载；运行中手动修改文件须重启，不逐请求检查文件。"""
+    global _config
+    _config = None
 
 
 def setup_key() -> str:
@@ -41,6 +58,7 @@ def setup_key() -> str:
 
 
 def prepare_setup(get_url):
+    reset_config_cache()
     if get_url():
         return
     key = setup_key()
@@ -65,21 +83,34 @@ def normalize_url(value: str) -> str:
     return value
 
 
-def configured_url(legacy_primary: str) -> str:
-    if CONFIG_FILE.exists():
-        try:
-            config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            primary = normalize_url(config["primary_url"])
-            if not primary:
-                raise ValueError
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
-            raise HTTPException(503, "Komga 配置文件无法读取，请管理员检查数据目录") from None
-        # 迁移旧配置：不仅忽略备用地址，也从持久化文件中移除该字段。
-        if "backup_url" in config:
-            write_config(primary, config.get("api_key", ""), config.get("invite_code", ""))
+def configured_values() -> KomgaConfig:
+    global _config
+    if _config is not None:
+        return _config
+    try:
+        text = CONFIG_FILE.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        _config = KomgaConfig()
+        return _config
+    except OSError:
+        raise HTTPException(503, "Komga 配置文件无法读取，请管理员检查数据目录") from None
+    try:
+        config = json.loads(text)
+        primary = normalize_url(config["primary_url"])
+        api_key, invite = config.get("api_key", ""), config.get("invite_code", "")
+        if not primary or not isinstance(api_key, str) or not isinstance(invite, str):
+            raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(503, "Komga 配置文件无法读取，请管理员检查数据目录") from None
+    if "backup_url" in config:
+        write_config(primary, api_key, invite)
     else:
-        primary = legacy_primary.strip().rstrip("/")
-    return primary
+        _config = KomgaConfig(primary, api_key, invite)
+    return _config
+
+
+def configured_url(legacy_primary: str) -> str:
+    return configured_values().primary_url or legacy_primary.strip().rstrip("/")
 
 
 class SetupInput(BaseModel):
@@ -145,6 +176,7 @@ async def probe(url: str, api_key: str) -> dict:
 
 
 def write_config(primary_url: str, api_key: str = "", invite_code: str = ""):
+    global _config
     temporary = None
     try:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -158,6 +190,8 @@ def write_config(primary_url: str, api_key: str = "", invite_code: str = ""):
             json.dump(config, stream, ensure_ascii=False)
         temporary.chmod(0o600)
         temporary.replace(CONFIG_FILE)
+        # 仅在成功落盘后更新；用不可变对象整体替换，避免读取到一半的新配置。
+        _config = KomgaConfig(primary_url, api_key, invite_code)
     except OSError:
         raise HTTPException(503, "保存失败，请检查数据目录写入权限（容器 UID 10001）") from None
     finally:

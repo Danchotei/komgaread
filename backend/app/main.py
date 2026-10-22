@@ -9,6 +9,8 @@ from http.cookies import SimpleCookie
 from email.utils import parsedate_to_datetime
 import asyncio
 
+from jmcomic import JmOption
+
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -32,18 +34,31 @@ recovery_locks = [asyncio.Lock() for _ in range(32)]
 
 @asynccontextmanager
 async def lifespan(app):
+    from .reactions import initialize_store
     from .setup import prepare_setup
+    from . import release_cache
+    from .setup import configured_values
     prepare_setup(komga_url)
+    await run_in_threadpool(initialize_store)
     sessions.prune(time())
     async def cleanup_sessions():
         while True:
             await asyncio.sleep(3600)
             await run_in_threadpool(sessions.prune, time())
     cleanup = asyncio.create_task(cleanup_sessions())
+    release_cache.service = release_cache.ReleaseCache(
+        Path(__file__).resolve().parents[1] / "data" / "metadata.sqlite3",
+        lambda: (komga_url(), configured_values().api_key),
+    )
+    date_worker = asyncio.create_task(release_cache.service.run())
     try:
         yield
     finally:
         cleanup.cancel()
+        date_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await date_worker
+        release_cache.service = None
         with suppress(asyncio.CancelledError):
             await cleanup
         sessions.close()
@@ -102,11 +117,7 @@ async def protect_requests(request: Request, call_next):
         response = await call_next(request)
     finally:
         session_context.reset(context)
-    if response.status_code < 400 and getattr(request.state, "authenticated_sid", None) == session_id:
-        now = time()
-        if await run_in_threadpool(sessions.touch, session_id, now, now + SESSION_SECONDS):
-            set_session_cookie(response, session_id)
-    elif response.status_code == 401 and session_id and session_id not in sessions:
+    if response.status_code == 401 and session_id and session_id not in sessions:
         response.delete_cookie(COOKIE_NAME, path="/api", secure=COOKIE_SECURE, httponly=True, samesite="lax")
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -240,8 +251,23 @@ def current_token(request: Request) -> str:
     if entry["origin"] and entry["origin"] != komga_url():
         sessions.pop(session_id, None)
         raise HTTPException(401, "漫画服务器已更换，请重新登录")
-    request.state.authenticated_sid = session_id
     return entry["token"]
+
+
+class ResourceLookupInput(BaseModel):
+    jmid: str = Field(pattern=r"^[0-9]{1,20}$")
+
+
+@app.post("/api/resource/lookup", status_code=204)
+async def lookup_resource(data: ResourceLookupInput, request: Request):
+    current_token(request)
+    jmid = data.jmid
+    client = JmOption.default().new_jm_client()
+    cover_dir = Path(__file__).resolve().parents[1] / 'data' / 'jm'
+    cover_dir.mkdir(parents=True, exist_ok=True)
+    cover_path = cover_dir / f'{jmid}.png'
+    client.download_album_cover(jmid, str(cover_path))
+    return Response(status_code=204)
 
 
 @app.post("/api/auth/login")
@@ -263,10 +289,17 @@ async def login(data: LoginInput, request: Request, response: Response):
 
 
 @app.get("/api/auth/me")
-async def me(request: Request):
+async def me(request: Request, response: Response):
     token = current_token(request)
     try:
-        return public_user(await komga_request("GET", "/api/v2/users/me", headers={"X-Auth-Token": token}))
+        user = public_user(await komga_request("GET", "/api/v2/users/me", headers={"X-Auth-Token": token}))
+        # 前端仅在网站启动／刷新时调用；普通 API 和图片不延长本站会话。
+        session_id = request.cookies.get(COOKIE_NAME, "")
+        now = time()
+        if not await run_in_threadpool(sessions.touch, session_id, now, now + SESSION_SECONDS):
+            raise HTTPException(401, "登录已过期，请重新登录")
+        set_session_cookie(response, session_id)
+        return user
     except HTTPException as exc:
         if exc.status_code == 401:
             sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
@@ -352,12 +385,12 @@ async def recommendations(request: Request):
     token = current_token(request)
     headers = {"X-Auth-Token": token}
     user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
-    async with daily.lock:
+    async with daily.generation_lock(user["id"]):
         day = daily.china_day()
-        items = daily.read(user["id"], day, count=8)
+        items = await run_in_threadpool(daily.read, user["id"], day, count=8)
         if items is None:
             items = await select_recommendations(request, count=8)
-            daily.write(user["id"], day, items, count=8)
+            await run_in_threadpool(daily.write, user["id"], day, items, count=8)
     # 每次仍检查权限，避免已删除或被撤销权限的系列继续展示。
     visible = []
     for item in items:

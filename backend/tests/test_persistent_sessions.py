@@ -18,7 +18,7 @@ def network(monkeypatch, handler):
     monkeypatch.setattr(main, "komga_url", lambda: "https://komga.example")
 
 
-def test_persistence_cookie_sliding_expiry_and_no_password(monkeypatch):
+def test_persistence_startup_renewal_and_no_password(monkeypatch):
     now = [1_000_000.0]
     monkeypatch.setattr(main, "time", lambda: now[0])
     def handler(request):
@@ -48,6 +48,44 @@ def test_persistence_cookie_sliding_expiry_and_no_password(monkeypatch):
     assert response.status_code == 401
     assert session_id not in main.sessions
     assert "Max-Age=0" in response.headers["set-cookie"]
+
+
+def test_only_startup_check_renews_session(monkeypatch):
+    now = [1_000_000.0]
+    monkeypatch.setattr(main, "time", lambda: now[0])
+    def handler(request):
+        if request.url.path == "/api/v2/users/me":
+            return httpx.Response(200, json=USER)
+        if request.url.path.endswith("thumbnail"):
+            return httpx.Response(200, content=b"cover", headers={"Content-Type": "image/png"})
+        return httpx.Response(200, json={"id": "book", "seriesId": "one", "metadata": {}, "media": {"pagesCount": 1}})
+    network(monkeypatch, handler)
+    expires = now[0] + 100
+    main.sessions.create("local", "token", expires)
+    client = TestClient(main.app)
+    client.cookies.set(main.COOKIE_NAME, "local")
+    now[0] += 10
+    for path in ("/api/series/one/thumbnail", "/api/books/book"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert "set-cookie" not in response.headers
+        assert main.sessions.details("local")["expires"] == expires
+    response = client.get("/api/auth/me")
+    assert response.status_code == 200
+    assert "Max-Age=1209600" in response.headers["set-cookie"]
+    assert main.sessions.details("local")["expires"] == now[0] + main.SESSION_SECONDS
+
+
+def test_failed_startup_check_does_not_renew(monkeypatch):
+    network(monkeypatch, lambda request: httpx.Response(503))
+    expires = main.time() + 100
+    main.sessions.create("local", "token", expires)
+    client = TestClient(main.app)
+    client.cookies.set(main.COOKIE_NAME, "local")
+    response = client.get("/api/auth/me")
+    assert response.status_code == 502
+    assert "set-cookie" not in response.headers
+    assert main.sessions.details("local")["expires"] == expires
 
 
 def test_ordinary_session_recovers_and_updates_credentials(monkeypatch):
@@ -148,5 +186,5 @@ def test_image_stream_recovers_without_leaking_cookie(monkeypatch):
     client.cookies.set(main.COOKIE_NAME, "local")
     response = client.get("/api/books/b1/pages/1")
     assert response.status_code == 200 and response.content == b"image-bytes"
-    assert "remember" not in response.headers["set-cookie"]
+    assert "set-cookie" not in response.headers
     assert main.sessions.details("local")["token"] == "new"

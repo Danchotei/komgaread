@@ -1,5 +1,4 @@
 """使用后端管理员 API 密钥创建普通 Komga 用户。"""
-import json
 import re
 from collections import deque
 from secrets import compare_digest
@@ -13,17 +12,8 @@ from . import setup
 
 
 def registration_credentials() -> tuple[str, str]:
-    if not setup.CONFIG_FILE.exists():
-        return "", ""
-    try:
-        config = json.loads(setup.CONFIG_FILE.read_text(encoding="utf-8"))
-        key = config.get("api_key", "")
-        invite = config.get("invite_code", "")
-        if not isinstance(key, str) or not isinstance(invite, str):
-            raise ValueError
-        return key, invite
-    except (OSError, ValueError, AttributeError):
-        raise HTTPException(503, "无法读取注册配置，请联系管理员") from None
+    config = setup.configured_values()
+    return config.api_key, config.invite_code
 
 
 class RegisterInput(BaseModel):

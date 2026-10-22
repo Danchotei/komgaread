@@ -20,8 +20,7 @@ class ProfileInput(BaseModel):
 
 
 def profile_name(user_id, name=None):
-    with open_store() as db:
-        db.execute("CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL)")
+    with open_store(write=name is not None) as db:
         if name is not None:
             db.execute("INSERT INTO user_profiles VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name", (user_id, name))
         row = db.execute("SELECT display_name FROM user_profiles WHERE user_id=?", (user_id,)).fetchone()
@@ -34,7 +33,7 @@ def favorite_series_ids(user_id):
 
 
 def record_visit(user_id, series_id):
-    with open_store() as db:
+    with open_store(write=True) as db:
         next_order = db.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM browsing_history WHERE user_id=?", (user_id,)).fetchone()[0]
         db.execute("INSERT INTO browsing_history VALUES (?,?,?) ON CONFLICT(user_id,series_id) DO UPDATE SET sort_order=excluded.sort_order", (user_id, series_id, next_order))
         db.execute("DELETE FROM browsing_history WHERE user_id=? AND series_id NOT IN (SELECT series_id FROM browsing_history WHERE user_id=? ORDER BY sort_order DESC LIMIT 50)", (user_id, user_id))
