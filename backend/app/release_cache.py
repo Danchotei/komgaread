@@ -5,6 +5,7 @@ import logging
 import sqlite3
 from contextlib import closing, suppress
 from pathlib import Path
+from threading import Lock
 
 import httpx
 from starlette.concurrency import run_in_threadpool
@@ -39,10 +40,12 @@ class ReleaseCache:
         self.limit = asyncio.Semaphore(3)
         self.client = None
         self.url = ""
+        self.write_lock = Lock()
 
     def store(self, series_id=None, date=None):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+        # 线程池中的不同系列共用一个数据库，写入先排队，避免相互抢 SQLite 写锁。
+        with self.write_lock, closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("CREATE TABLE IF NOT EXISTS release_dates (series_id TEXT PRIMARY KEY, release_date TEXT)")
             if series_id is None:
                 db.execute("DELETE FROM release_dates")
@@ -128,7 +131,7 @@ class ReleaseCache:
             raise ValueError("Library changed")
 
     def delete(self, series_id):
-        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+        with self.write_lock, closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("DELETE FROM release_dates WHERE series_id=?", (series_id,))
 
     async def listen(self, response):

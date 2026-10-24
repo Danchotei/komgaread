@@ -1,6 +1,8 @@
 import asyncio
 import sqlite3
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import httpx
 import pytest
@@ -9,6 +11,40 @@ from fastapi.testclient import TestClient
 from app import main, release_cache, search_snapshots
 from app.release_cache import ReleaseCache
 from app.search import fill_last_release
+
+
+def test_cache_writes_wait_before_opening_another_connection(monkeypatch, tmp_path):
+    cache = ReleaseCache(tmp_path / 'metadata.sqlite3', lambda: ('', ''))
+    cache.store('remove', 'old')
+    original = sqlite3.connect
+    first_opened, release_first, second_started, second_opened = (Event() for _ in range(4))
+
+    def connect(*args, **kwargs):
+        if not first_opened.is_set():
+            first_opened.set()
+            assert release_first.wait(5)
+        else:
+            second_opened.set()
+        return original(*args, **kwargs)
+
+    def remove():
+        second_started.set()
+        cache.delete('remove')
+
+    monkeypatch.setattr(release_cache.sqlite3, 'connect', connect)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(cache.store, 'keep', '2026-10-24')
+        try:
+            assert first_opened.wait(5)
+            second = pool.submit(remove)
+            assert second_started.wait(5)
+            assert not second_opened.wait(0.1)
+        finally:
+            release_first.set()
+        first.result(timeout=5)
+        second.result(timeout=5)
+    with closing(original(cache.path)) as db:
+        assert dict(db.execute('SELECT * FROM release_dates')) == {'keep': '2026-10-24'}
 
 
 @pytest.mark.parametrize('failure', ['http', 'timeout', 'database', 'format'])
