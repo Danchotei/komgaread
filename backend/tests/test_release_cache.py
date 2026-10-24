@@ -11,6 +11,40 @@ from app.release_cache import ReleaseCache
 from app.search import fill_last_release
 
 
+@pytest.mark.parametrize('failure', ['http', 'timeout', 'database', 'format'])
+def test_rebuild_logs_reason_without_credentials(monkeypatch, tmp_path, caplog, failure):
+    cache = ReleaseCache(tmp_path / 'metadata.sqlite3', lambda: ('', ''))
+    request = httpx.Request('POST', 'https://private.example/api/v1/books/list?key=secret', headers={'X-API-Key': 'secret'})
+    if failure == 'http':
+        error = httpx.HTTPStatusError('secret response', request=request, response=httpx.Response(403, request=request))
+        expected = 'HTTP 403 POST /api/v1/books/list'
+    elif failure == 'timeout':
+        error = httpx.ReadTimeout('secret connection', request=request)
+        expected = 'ReadTimeout POST /api/v1/books/list'
+    elif failure == 'database':
+        error = sqlite3.OperationalError('database is locked')
+        expected = 'OperationalError: database is locked'
+    else:
+        error = KeyError('content')
+        expected = "KeyError: 'content'"
+
+    async def fail():
+        raise error
+
+    async def stop_after_warning(seconds):
+        assert seconds == 60
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(cache, 'full_refresh', fail)
+    monkeypatch.setattr(release_cache.asyncio, 'sleep', stop_after_warning)
+    with caplog.at_level('WARNING', logger='uvicorn.error'):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(cache.warm_until_success())
+    assert expected in caplog.text
+    assert 'secret' not in caplog.text
+    assert 'private.example' not in caplog.text
+
+
 def test_full_rebuild_persists_last_number_date_and_missing_date(tmp_path):
     calls = []
     def handler(request):

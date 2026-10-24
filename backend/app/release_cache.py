@@ -13,6 +13,19 @@ logger = logging.getLogger("uvicorn.error")
 service = None
 
 
+def failure_reason(exc):
+    # HTTP 日志仅记录接口路径，不输出密钥、请求头、查询参数或响应正文。
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code} {exc.request.method} {exc.request.url.path}"
+    if isinstance(exc, httpx.RequestError):
+        try:
+            request = exc.request
+        except RuntimeError:
+            return type(exc).__name__
+        return f"{type(exc).__name__} {request.method} {request.url.path}"
+    return f"{type(exc).__name__}: {exc}"
+
+
 class ReleaseCache:
     def __init__(self, path, get_credentials):
         self.path = Path(path)
@@ -95,8 +108,8 @@ class ReleaseCache:
             try:
                 await self.full_refresh()
                 return
-            except (httpx.HTTPError, ValueError, KeyError, TypeError, sqlite3.Error, OSError):
-                logger.warning("Release date rebuild interrupted; retrying in 60 seconds")
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, sqlite3.Error, OSError) as exc:
+                logger.warning("Release date rebuild interrupted; retrying in 60 seconds (%s)", failure_reason(exc))
                 await asyncio.sleep(60)
 
     async def event(self, name, data):
@@ -155,8 +168,8 @@ class ReleaseCache:
                             warm = asyncio.create_task(self.warm_until_success())
                             delay = 5
                             await self.listen(response)
-            except (httpx.HTTPError, ValueError, KeyError, TypeError, sqlite3.Error, OSError):
-                logger.warning("Komga date cache listener unavailable; retrying in %ss (dates use live queries)", delay)
+            except (httpx.HTTPError, ValueError, KeyError, TypeError, sqlite3.Error, OSError) as exc:
+                logger.warning("Komga date cache listener unavailable; retrying in %ss (dates use live queries; %s)", delay, failure_reason(exc))
             finally:
                 if self.connected or self.dates:
                     self.invalidate()
