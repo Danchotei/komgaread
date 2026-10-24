@@ -29,7 +29,11 @@ function finishTransition() {
   if (!animatedNavigation) return
   animatedNavigation = false
   stageHeight.value = null
-  void nextTick(restoreScroll)
+  void nextTick(() => {
+    restoreScroll()
+    // 解除动画高度限制、恢复路由滚动后，再让阅读器定位保存的页码。
+    window.dispatchEvent(new Event('app-page-ready'))
+  })
 }
 
 // 层级只选择动画方向；返回目标由下面的站内页面栈决定。

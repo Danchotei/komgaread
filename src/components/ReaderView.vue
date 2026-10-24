@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
-import { getJson, saveProgress } from '../api/library'
+import { getJson, saveProgress, waitForProgress } from '../api/library'
 import { navigateTo } from '../navigation'
 import type { ChapterInfo } from '../seriesState'
 const props = defineProps<{ bookId: string }>()
@@ -53,6 +53,7 @@ async function changeChapter(id: string | null) {
 }
 let tapStart: { x: number; y: number; scrollY: number } | null = null
 function startTap(event: PointerEvent) {
+  cancelRestore()
   tapStart = event.isPrimary ? { x: event.clientX, y: event.clientY, scrollY: window.scrollY } : null
 }
 function finishTap(event: PointerEvent) {
@@ -73,8 +74,18 @@ let displayedPage = 0
 let lastQueuedPage = 0
 let disposed = false
 let active = true
+let restoreTarget: number | null = null
+function cancelRestore() { restoreTarget = null }
+async function restorePage() {
+  const target = restoreTarget
+  await nextTick()
+  if (!active || disposed || target === null || restoreTarget !== target) return
+  strip.value?.querySelector<HTMLElement>(`[data-page="${target}"]`)?.scrollIntoView({ block: 'start', behavior: 'instant' })
+  // 恢复期间不让占位图片或路由滚动产生的页码覆盖服务器记录。
+  if (loaded.value.has(target)) displayedPage = target
+}
 onActivated(() => { active = true; lastScrollY = window.scrollY; onScroll() })
-onDeactivated(() => { active = false; clearTimeout(saveTimer); cancelAnimationFrame(frame); frame = 0; persistPage() })
+onDeactivated(() => { active = false; cancelRestore(); clearTimeout(saveTimer); cancelAnimationFrame(frame); frame = 0; persistPage() })
 
 function persistPage(force = false) {
   if (!displayedPage || (!force && displayedPage === lastQueuedPage)) return
@@ -96,7 +107,7 @@ function persistPage(force = false) {
 }
 function updateVisiblePage() {
   frame = 0
-  if (!active) return
+  if (!active || restoreTarget !== null) return
   const atBottom = !!book.value?.pagesCount && loaded.value.has(book.value.pagesCount)
     && !!strip.value && strip.value.getBoundingClientRect().bottom <= window.innerHeight + 2
   // 只在到达底部的瞬间展开，仍允许用户轻点收起工具栏。
@@ -125,9 +136,14 @@ function onScroll(event?: Event) {
   }
   if (!frame) frame = requestAnimationFrame(updateVisiblePage)
 }
-function imageLoaded(number: number) { loaded.value.add(number); onScroll() }
+function imageLoaded(number: number) {
+  loaded.value.add(number)
+  if (restoreTarget !== null && number <= restoreTarget) void restorePage()
+  onScroll()
+}
 function retryImage(number: number) { failed.value.delete(number); retries.value[number] = (retries.value[number] || 0) + 1 }
 function jumpToPage() {
+  cancelRestore()
   const element = strip.value?.querySelector<HTMLElement>(`[data-page="${page.value}"]`)
   element?.scrollIntoView({ block: 'start', behavior: 'instant' })
   onScroll()
@@ -148,15 +164,18 @@ async function goBack() {
 async function load() {
   error.value = ''
   try {
+    await waitForProgress(props.bookId)
+    if (disposed) return
     const data = await getJson<Book>(`/api/books/${encodeURIComponent(props.bookId)}`)
     if (disposed) return
     window.dispatchEvent(new CustomEvent('app-reader-ready', { detail: {
       bookHash: `#/books/${encodeURIComponent(props.bookId)}`,
       seriesHash: `#/series/${encodeURIComponent(data.seriesId)}`,
     } }))
+    page.value = Math.max(1, Math.min(data.pagesCount || 1, data.readProgress?.page || 1))
+    restoreTarget = page.value
     book.value = data
     void loadAdjacentChapters(data.seriesId)
-    page.value = Math.max(1, Math.min(data.pagesCount || 1, data.readProgress?.page || 1))
     await nextTick()
     if (disposed) return
     observer?.disconnect()
@@ -171,7 +190,7 @@ async function load() {
       onScroll()
     })
     strip.value?.querySelectorAll<HTMLElement>('[data-page]').forEach(element => observer?.observe(element))
-    jumpToPage()
+    await restorePage()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '章节加载失败' }
 }
 function flushProgress() { clearTimeout(saveTimer); persistPage() }
@@ -182,6 +201,10 @@ onMounted(() => {
   window.addEventListener('resize', onScroll)
   window.addEventListener('pagehide', flushProgress)
   document.addEventListener('visibilitychange', visibilityChanged)
+  window.addEventListener('app-page-ready', restorePage)
+  window.addEventListener('wheel', cancelRestore, { passive: true })
+  window.addEventListener('touchmove', cancelRestore, { passive: true })
+  window.addEventListener('keydown', cancelRestore)
 })
 onUnmounted(() => {
   disposed = true
@@ -192,6 +215,10 @@ onUnmounted(() => {
   window.removeEventListener('resize', onScroll)
   window.removeEventListener('pagehide', flushProgress)
   document.removeEventListener('visibilitychange', visibilityChanged)
+  window.removeEventListener('app-page-ready', restorePage)
+  window.removeEventListener('wheel', cancelRestore)
+  window.removeEventListener('touchmove', cancelRestore)
+  window.removeEventListener('keydown', cancelRestore)
 })
 </script>
 

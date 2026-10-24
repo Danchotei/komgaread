@@ -87,7 +87,7 @@ def create_reactions_router(komga_request, current_token, public_user):
     router = APIRouter(prefix="/api/series", tags=["reactions"])
 
     async def user_for_series(request, series_id):
-        headers = {"X-Auth-Token": current_token(request)}
+        headers = {"X-Auth-Token": await run_in_threadpool(current_token, request)}
         user, _ = await asyncio.gather(
             komga_request("GET", "/api/v2/users/me", headers=headers),
             komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}", headers=headers),

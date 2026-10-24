@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -9,6 +10,57 @@ from app.session_store import SessionStore
 
 ORIGIN = {"Origin": "http://127.0.0.1:5173"}
 USER = {"id": "reader", "email": "reader@example.com"}
+
+
+@pytest.fixture(autouse=True)
+def session_database_must_not_run_on_event_loop(monkeypatch):
+    original = SessionStore.connect
+
+    @contextmanager
+    def checked_connect(store):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            pytest.fail("会话数据库操作不能在异步事件循环线程执行")
+        with original(store) as db:
+            yield db
+
+    monkeypatch.setattr(SessionStore, "connect", checked_connect)
+
+
+def test_session_lifecycle_uses_worker_threads(monkeypatch):
+    from app import reactions, release_cache, setup
+
+    class IdleCache:
+        def __init__(self, *args):
+            pass
+
+        async def run(self):
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(setup, "prepare_setup", lambda get_url: None)
+    monkeypatch.setattr(reactions, "initialize_store", lambda: None)
+    monkeypatch.setattr(release_cache, "ReleaseCache", IdleCache)
+    original_close = main.sessions.close
+
+    def close():
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            pytest.fail("会话数据库关闭不能在异步事件循环线程执行")
+        original_close()
+
+    monkeypatch.setattr(main.sessions, "close", close)
+
+    async def run():
+        async with main.lifespan(main.app):
+            pass
+
+    asyncio.run(run())
 
 
 def network(monkeypatch, handler):

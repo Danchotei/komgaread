@@ -9,6 +9,11 @@ export async function getJson<T>(path: string): Promise<T> {
 
 // 同一本书的写入按顺序执行，前一次失败也不会阻塞后续保存。
 const progressQueues = new Map<string, Promise<void>>()
+// 快速退出后重进时，先等待同一章节尚未完成的保存，避免读到旧页码。
+export async function waitForProgress(bookId: string): Promise<void> {
+  let pending: Promise<void> | undefined
+  while ((pending = progressQueues.get(bookId))) await pending
+}
 export function saveProgress(bookId: string, page: number): Promise<void> {
   const previous = progressQueues.get(bookId) ?? Promise.resolve()
   const task = previous.catch(() => {}).then(async () => {

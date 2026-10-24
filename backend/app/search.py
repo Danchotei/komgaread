@@ -63,7 +63,7 @@ def create_search_router(
             raise HTTPException(422, "请选择搜索类型并输入 1–200 字的关键词")
         if order not in {None, "asc", "desc"}:
             raise HTTPException(422, "排序方式必须为 asc 或 desc")
-        headers = {"X-Auth-Token": current_token(request)}
+        headers = {"X-Auth-Token": await run_in_threadpool(current_token, request)}
         cache = release_cache.service
         revision = cache.revision if cache else 0
         signature = (q.strip(), type, order, exact, favorites)

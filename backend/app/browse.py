@@ -3,6 +3,7 @@ import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request
+from starlette.concurrency import run_in_threadpool
 
 from .search import order_by_last_release, series_card
 
@@ -13,7 +14,7 @@ def create_browse_router(komga_request, current_token, read_json, random_series)
 
     @router.get("/{kind}")
     async def browse(kind: Literal["latest", "random", "all"], request: Request, page: int = Query(default=0, ge=0)):
-        headers = {"X-Auth-Token": current_token(request)}
+        headers = {"X-Auth-Token": await run_in_threadpool(current_token, request)}
         if kind == "random":
             items = await random_series(request) if page == 0 else []
             # 补齐日期，保留原抽样顺序。

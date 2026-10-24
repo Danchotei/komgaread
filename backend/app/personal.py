@@ -52,7 +52,7 @@ def create_personal_router(komga_request, current_token, public_user, read_json)
     router = APIRouter(tags=["personal"])
 
     async def identity(request):
-        headers = {"X-Auth-Token": current_token(request)}
+        headers = {"X-Auth-Token": await run_in_threadpool(current_token, request)}
         user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
         return user["id"], headers
 
@@ -64,7 +64,7 @@ def create_personal_router(komga_request, current_token, public_user, read_json)
 
     @router.get("/api/me/profile")
     async def profile(request: Request):
-        headers = {"X-Auth-Token": current_token(request)}
+        headers = {"X-Auth-Token": await run_in_threadpool(current_token, request)}
         user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
         name = await storage(profile_name, user["id"])
         return {"displayName": name or user["email"]}

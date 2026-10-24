@@ -42,7 +42,7 @@ async def lifespan(app):
     from .setup import configured_values
     prepare_setup(komga_url)
     await run_in_threadpool(initialize_store)
-    sessions.prune(time())
+    await run_in_threadpool(sessions.prune, time())
     async def cleanup_sessions():
         while True:
             await asyncio.sleep(3600)
@@ -63,7 +63,7 @@ async def lifespan(app):
         release_cache.service = None
         with suppress(asyncio.CancelledError):
             await cleanup
-        sessions.close()
+        await run_in_threadpool(sessions.close)
 
 
 app = FastAPI(title="KomgaRead API", lifespan=lifespan)
@@ -119,7 +119,7 @@ async def protect_requests(request: Request, call_next):
         response = await call_next(request)
     finally:
         session_context.reset(context)
-    if response.status_code == 401 and session_id and session_id not in sessions:
+    if response.status_code == 401 and session_id and not await run_in_threadpool(sessions.details, session_id):
         response.delete_cookie(COOKIE_NAME, path="/api", secure=COOKIE_SECURE, httponly=True, samesite="lax")
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -178,33 +178,33 @@ async def send_komga(method: str, path: str, **kwargs):
 
 async def recover_komga_session(session_id, failed_token):
     async with recovery_locks[hash(session_id) % len(recovery_locks)]:
-        entry = sessions.details(session_id)
+        entry = await run_in_threadpool(sessions.details, session_id)
         if not entry or entry["expires"] <= time() or (entry["origin"] and entry["origin"] != komga_url()):
-            sessions.pop(session_id, None)
+            await run_in_threadpool(sessions.pop, session_id, None)
             raise HTTPException(401, "登录已过期，请重新登录")
         if entry["token"] != failed_token:
             return entry["token"]
         if not entry["remember"] or (entry["remember_expires"] and entry["remember_expires"] <= time()):
-            sessions.pop(session_id, None)
+            await run_in_threadpool(sessions.pop, session_id, None)
             raise HTTPException(401, "登录已过期，请重新登录")
         cookie = SimpleCookie()
         cookie[REMEMBER_COOKIE] = entry["remember"]
         response = await send_komga("GET", "/api/v2/users/me", headers={"X-Auth-Token": "", "Cookie": cookie.output(header="").strip()})
         if response.status_code == 401:
-            sessions.pop(session_id, None)
+            await run_in_threadpool(sessions.pop, session_id, None)
             raise HTTPException(401, "长期登录凭据已失效，请重新登录")
         if not response.is_success:
             raise HTTPException(502, "Komga 登录恢复暂时失败，请稍后重试")
         user = public_user(response)
         if entry["user_id"] and entry["user_id"] != user["id"]:
-            sessions.pop(session_id, None)
+            await run_in_threadpool(sessions.pop, session_id, None)
             raise HTTPException(401, "登录身份发生变化，请重新登录")
         token = response.headers.get("X-Auth-Token")
         if not token:
             raise HTTPException(502, "Komga 未返回恢复后的会话")
         remember, expires = remember_credentials(response)
-        sessions.credentials(session_id, token, remember, expires)
-        if session_id not in sessions:
+        await run_in_threadpool(sessions.credentials, session_id, token, remember, expires)
+        if not await run_in_threadpool(sessions.details, session_id):
             raise HTTPException(401, "登录已退出")
         return token
 
@@ -212,7 +212,7 @@ async def recover_komga_session(session_id, failed_token):
 async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
     session_id = session_context.get()
     token = kwargs.get("headers", {}).get("X-Auth-Token")
-    entry = sessions.details(session_id) if session_id and token and "auth" not in kwargs and path != "/api/logout" else None
+    entry = await run_in_threadpool(sessions.details, session_id) if session_id and token and "auth" not in kwargs and path != "/api/logout" else None
     if entry:
         kwargs["headers"] = {**kwargs["headers"], "X-Auth-Token": entry["token"]}
         token = entry["token"]
@@ -222,7 +222,7 @@ async def komga_request(method: str, path: str, **kwargs) -> httpx.Response:
         kwargs["headers"] = {**kwargs["headers"], "X-Auth-Token": token}
         response = await send_komga(method, path, **kwargs)
         if response.status_code == 401:
-            sessions.pop(session_id, None)
+            await run_in_threadpool(sessions.pop, session_id, None)
     if response.status_code == 401:
         raise HTTPException(401, "账号或密码错误，或登录已过期")
     if response.status_code == 404:
@@ -245,6 +245,7 @@ def public_user(response: httpx.Response) -> dict:
 
 
 def current_token(request: Request) -> str:
+    # 异步路由通过 run_in_threadpool 调用；同步路由本身由 FastAPI 放在线程池中。
     session_id = request.cookies.get(COOKIE_NAME, "")
     entry = sessions.details(session_id)
     if not entry or entry["expires"] <= time():
@@ -299,18 +300,18 @@ async def login(data: LoginInput, request: Request, response: Response):
     if not token:
         raise HTTPException(502, "Komga 未返回会话，请检查服务或反向代理配置")
     now = time()
-    sessions.prune(now)
-    sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
+    await run_in_threadpool(sessions.prune, now)
+    await run_in_threadpool(sessions.pop, request.cookies.get(COOKIE_NAME, ""), None)
     session_id = token_urlsafe(32)
     remember, remember_expires = remember_credentials(upstream)
-    sessions.create(session_id, token, now + SESSION_SECONDS, remember or "", remember_expires or 0, komga_url(), user["id"])
+    await run_in_threadpool(sessions.create, session_id, token, now + SESSION_SECONDS, remember or "", remember_expires or 0, komga_url(), user["id"])
     set_session_cookie(response, session_id)
     return user
 
 
 @app.get("/api/auth/me")
 async def me(request: Request, response: Response):
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     try:
         user = public_user(await komga_request("GET", "/api/v2/users/me", headers={"X-Auth-Token": token}))
         # 前端仅在网站启动／刷新时调用；普通 API 和图片不延长本站会话。
@@ -322,7 +323,7 @@ async def me(request: Request, response: Response):
         return user
     except HTTPException as exc:
         if exc.status_code == 401:
-            sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
+            await run_in_threadpool(sessions.pop, request.cookies.get(COOKIE_NAME, ""), None)
         raise
 
 
@@ -330,8 +331,8 @@ async def me(request: Request, response: Response):
 async def logout(request: Request):
     # 先撤销本站会话，即使 Komga 暂时离线也能退出。
     session_id = request.cookies.get(COOKIE_NAME, "")
-    details = sessions.details(session_id)
-    entry = sessions.pop(session_id, None)
+    details = await run_in_threadpool(sessions.details, session_id)
+    entry = await run_in_threadpool(sessions.pop, session_id, None)
     if entry:
         try:
             if not details["origin"] or details["origin"] == komga_url():
@@ -353,7 +354,7 @@ async def select_recommendations(request: Request, count: int = 4):
     from random import sample
     from urllib.parse import quote
 
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     headers = {"X-Auth-Token": token}
 
     async def read_page(index: int):
@@ -402,7 +403,7 @@ async def recommendations(request: Request):
     from .search import fill_last_release
     from . import daily
     from urllib.parse import quote
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     headers = {"X-Auth-Token": token}
     user = public_user(await komga_request("GET", "/api/v2/users/me", headers=headers))
     async with daily.generation_lock(user["id"]):
@@ -426,7 +427,7 @@ async def recommendations(request: Request):
 async def series_thumbnail(series_id: str, request: Request):
     from urllib.parse import quote
 
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     upstream = await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}/thumbnail", headers={"X-Auth-Token": token})
     media_type = upstream.headers.get("content-type", "").split(";")[0]
     if media_type not in {"image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"}:
@@ -439,7 +440,7 @@ async def recent_series(request: Request):
     from .search import fill_last_release
     from urllib.parse import quote
 
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     upstream = await komga_request(
         "POST", "/api/v1/series/list", headers={"X-Auth-Token": token},
         params={"page": 0, "size": 8, "sort": "createdDate,desc"}, json={},
@@ -475,7 +476,7 @@ def read_json(upstream: httpx.Response):
 @app.get("/api/series/{series_id}")
 async def series_details(series_id: str, request: Request):
     from urllib.parse import quote
-    data = read_json(await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
+    data = read_json(await komga_request("GET", f"/api/v1/series/{quote(series_id, safe='')}", headers={"X-Auth-Token": await run_in_threadpool(current_token, request)}))
     metadata = data.get("metadata", {})
     book_metadata = data.get("booksMetadata") or {}
     contributors = book_metadata.get("authors") or []
@@ -499,14 +500,14 @@ async def series_books(series_id: str, request: Request, page: int = 0, order: s
         raise HTTPException(422, "排序方式必须为 asc 或 desc")
     if page < 0:
         raise HTTPException(422, "页码不能为负数")
-    data = read_json(await komga_request("POST", "/api/v1/books/list", headers={"X-Auth-Token": current_token(request)}, params={"page": page, "size": 48, "sort": f"metadata.numberSort,{order}"}, json={"condition": {"seriesId": {"operator": "is", "value": series_id}}}))
+    data = read_json(await komga_request("POST", "/api/v1/books/list", headers={"X-Auth-Token": await run_in_threadpool(current_token, request)}, params={"page": page, "size": 48, "sort": f"metadata.numberSort,{order}"}, json={"condition": {"seriesId": {"operator": "is", "value": series_id}}}))
     return {"items": [{"id": book["id"], "title": book.get("metadata", {}).get("title") or book.get("name") or "未命名书籍", "pagesCount": book.get("media", {}).get("pagesCount", 0), "readProgress": book.get("readProgress"), "thumbnailUrl": f"/api/books/{quote(book['id'], safe='')}/thumbnail"} for book in data["content"]], "last": data["last"]}
 
 
 @app.get("/api/books/{book_id}")
 async def book_details(book_id: str, request: Request):
     from urllib.parse import quote
-    data = read_json(await komga_request("GET", f"/api/v1/books/{quote(book_id, safe='')}", headers={"X-Auth-Token": current_token(request)}))
+    data = read_json(await komga_request("GET", f"/api/v1/books/{quote(book_id, safe='')}", headers={"X-Auth-Token": await run_in_threadpool(current_token, request)}))
     return {"id": data["id"], "seriesId": data["seriesId"], "title": data.get("metadata", {}).get("title") or data.get("name"), "pagesCount": data.get("media", {}).get("pagesCount", 0), "readProgress": data.get("readProgress")}
 
 
@@ -514,7 +515,7 @@ async def book_image(book_id: str, request: Request, suffix: str, params=None):
     from urllib.parse import quote
     from fastapi.responses import StreamingResponse
     from starlette.background import BackgroundTask
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     url = komga_url()
     if not url:
         raise HTTPException(503, "请先配置 Komga")
@@ -526,7 +527,7 @@ async def book_image(book_id: str, request: Request, suffix: str, params=None):
             token = await recover_komga_session(request.cookies.get(COOKIE_NAME, ""), token)
             upstream = await client.send(client.build_request("GET", f"{url}/api/v1/books/{quote(book_id, safe='')}/{suffix}", headers={"X-Auth-Token": token, "Accept": "image/jpeg"}, params=params), stream=True)
             if upstream.status_code == 401:
-                sessions.pop(request.cookies.get(COOKIE_NAME, ""), None)
+                await run_in_threadpool(sessions.pop, request.cookies.get(COOKIE_NAME, ""), None)
     except HTTPException:
         await client.aclose()
         raise
@@ -564,7 +565,7 @@ class ProgressInput(BaseModel):
 @app.patch("/api/books/{book_id}/progress", status_code=204)
 async def save_book_progress(book_id: str, data: ProgressInput, request: Request):
     from urllib.parse import quote
-    token = current_token(request)
+    token = await run_in_threadpool(current_token, request)
     path = f"/api/v1/books/{quote(book_id, safe='')}"
     headers = {"X-Auth-Token": token}
     book = read_json(await komga_request("GET", path, headers=headers))
