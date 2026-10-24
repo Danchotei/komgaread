@@ -140,6 +140,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .home-page > main > section { flex: 1; min-height: 290px; display: flex; flex-direction: column; }
 .home-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid var(--surface-border); }
 .home-header .brand { margin: 0; font-size: 18px; }
+.home-header .brand-version { font-size: 12px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
 .header-mascot { display: block; flex-shrink: 0; width: 48px; height: 48px; object-fit: contain; }
 .header-search { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: #285d46; }
 .header-search:hover { background: #e5ede3; }

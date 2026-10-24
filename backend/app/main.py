@@ -9,6 +9,7 @@ from http.cookies import SimpleCookie
 from email.utils import parsedate_to_datetime
 import asyncio
 import base64
+import json
 from tempfile import TemporaryDirectory
 
 from jmcomic import JmOption, JmModuleConfig
@@ -33,6 +34,7 @@ SESSION_SECONDS = 14 * 24 * 60 * 60
 REMEMBER_COOKIE = "komga-remember-me"
 session_context = ContextVar("session_id", default="")
 recovery_locks = [asyncio.Lock() for _ in range(32)]
+APP_VERSION = json.loads((Path(__file__).resolve().parents[2] / "package.json").read_text(encoding="utf-8"))["version"]
 
 @asynccontextmanager
 async def lifespan(app):
@@ -66,7 +68,12 @@ async def lifespan(app):
         await run_in_threadpool(sessions.close)
 
 
-app = FastAPI(title="KomgaRead API", lifespan=lifespan)
+app = FastAPI(title="KomgaRead API", version=APP_VERSION, lifespan=lifespan)
+
+
+@app.get("/api/version", tags=["version"])
+async def version():
+    return {"version": APP_VERSION}
 
 # 初始化校验错误不回显输入，避免 API 密钥出现在响应和诊断记录中。
 

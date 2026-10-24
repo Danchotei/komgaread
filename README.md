@@ -2,6 +2,14 @@
 
 Vue 3 + TypeScript + Vite 前端，Python + FastAPI 后端的手机端漫画阅读网站。漫画来自现有 Komga 服务，按步骤开发和学习。
 
+## 应用版本
+
+当前试用版本为 **v0.1.0**。根目录 `package.json` 的 `version` 是应用版本的唯一来源，前端公共抬头在 KomgaRead 后显示版本号，后端 `/api/version` 和接口文档均使用该版本；Docker 镜像的 OCI version 标签信息也从这里读取。仅在用户明确要求时更新版本号及更新信息，日常修改不自动升级版本。
+
+版本格式为 `主版本.次版本.修订版本`：修复问题递增修订版本（如 0.1.1），新增功能递增次版本（如 0.2.0）。修改应用版本可在项目根目录执行 `npm version 0.1.1 --no-git-tag-version`，同步更新 package.json 和 package-lock.json，不自动提交或创建 Git 标签。修改后重启开发服务；NAS 部署则需重新构建发布镜像并更新容器。
+
+`backend/pyproject.toml` 中的版本为后端 Python 项目的包元数据，不作为应用显示版本来源。GitHub 镜像仍发布 `latest` 和 `sha-完整提交SHA`，没有新增 `v0.1.0` 镜像标签；精确确认或锁定构建仍使用 SHA 标签。
+
 ## 当前功能
 
 - 使用 Komga 账号登录，每位用户独立会话；主动登录成功后进入首页。
